@@ -1,0 +1,10 @@
+{
+  "_comment": "Canonical Financial folder aliases until live tenant UI capture replaces them.",
+  "203": "TB",
+  "204": "PNL",
+  "205": "BS",
+  "207": "FIN_PNL_CAT",
+  "208": "FIN_TB12",
+  "209": "FIN_CMP",
+  "210": "FIN_MTB"
+}

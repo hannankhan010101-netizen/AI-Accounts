@@ -1,0 +1,326 @@
+# .cursorrules - FastAPI + Prisma + PostgreSQL Backend Architecture
+
+You are an expert Python backend architect specializing in FastAPI, Prisma ORM, and PostgreSQL. Follow these architectural guidelines strictly for all code generation, reviews, and refactoring.
+
+---
+
+## 🏗️ ARCHITECTURAL PRINCIPLES
+
+### Core Design Philosophy
+- **Maintainability**: Write self-documenting, modular code that future developers can understand instantly
+- **Scalability**: Design for growth - handle 10x traffic without architectural changes
+- **Reliability**: Zero-downtime deployments, graceful error handling, comprehensive logging
+- **DRY**: Never duplicate logic - centralize and abstract common patterns
+- **KISS**: Simplest solution that works - avoid premature optimization
+- **YAGNI**: Build what's needed today, not what might be needed tomorrow
+- **SOLID**: Single responsibility, open-closed, dependency inversion throughout
+- **Testability**: Every component must be independently testable with mocked dependencies
+- **Observability**: Production-ready logging, monitoring, and debugging capabilities
+
+---
+
+## 📐 PROJECT STRUCTURE
+
+Top-level (image-aligned): `docs/`, `migrations/`, `public/`, `scripts/`, `src/`, `uploads/`; `.env`, `.env.example`, `.env.test`, `.cursorrules`, `.gitignore`.  
+Application and tests live under `src/`. Enforce strict layer separation inside `src/app/`:
+
+```
+src/
+├── app/                    → Main application (strict layers below)
+│   ├── api/dependencies/   → Dependency injection factories
+│   ├── api/routes/        → HTTP endpoint definitions only
+│   ├── core/              → config, database, security, custom exceptions
+│   ├── models/requests/   → Pydantic request validation schemas
+│   ├── models/responses/  → Pydantic response serialization schemas
+│   ├── services/          → Business logic layer (no DB, no HTTP)
+│   ├── repositories/     → Data access layer (Prisma only)
+│   ├── constants/        → Enums and immutable values
+│   └── main.py           → Application bootstrap
+├── config/                → Re-exports app.core.config
+├── constants/             → Re-exports app.constants
+├── controllers/           → Re-exports app.api.routes (route layer)
+├── db_connection/         → Re-exports app.core.database
+├── express_app/           → Re-exports FastAPI app (app.main)
+├── jobs/                  → Background jobs (placeholder)
+├── middlewares/           → FastAPI middlewares
+├── routes/                → Re-exports app.api.routes
+├── tests/                 → Pytest tests (mirror app layers)
+├── utils/                 → Shared utilities
+├── validators/            → Re-exports app.models.requests
+└── main.py                → Entry point (uvicorn)
+prisma/schema.prisma       → Database schema (at repo root)
+```
+
+---
+
+## 🎯 MANDATORY LAYER RESPONSIBILITIES
+
+### 1. Route Layer (api/routes/)
+**Purpose**: HTTP orchestration only
+- Accept requests via Pydantic models (auto-validation)
+- Inject services via FastAPI `Depends()`
+- Call single service method
+- Return response (Pydantic model handles serialization)
+- **FORBIDDEN**: Business logic, validation, direct DB access, service instantiation
+
+### 2. Service Layer (services/)
+**Purpose**: Business logic orchestration
+- Accept repositories via constructor (dependency injection)
+- Coordinate business workflows across multiple repositories
+- Enforce business rules and domain logic
+- Raise custom HTTPException subclasses for errors
+- All methods async with full type hints and docstrings
+- **FORBIDDEN**: Request validation, database access, repository instantiation
+
+### 3. Repository Layer (repositories/)
+**Purpose**: Data persistence abstraction
+- Accept Prisma client via constructor (dependency injection)
+- All database operations go through repositories exclusively
+- Support transactions via optional `tx` parameter
+- Use explicit field selection (never select all fields)
+- Return raw Prisma models or None
+- **FORBIDDEN**: Direct Prisma imports, business logic, validation
+
+### 4. Dependency Injection (api/dependencies/)
+**Purpose**: Wire dependencies together
+- Create factory functions for repositories (inject Prisma)
+- Create factory functions for services (inject repositories)
+- Use FastAPI `Depends()` for all dependencies
+- **Pattern**: `get_prisma()` → `get_user_repository()` → `get_user_service()`
+
+---
+
+## 🚫 CRITICAL ANTI-PATTERNS TO AVOID
+
+### Never Import Dependencies Directly
+❌ **WRONG**: `from app.core.database import prisma` in repositories
+✅ **RIGHT**: Accept `prisma_client: Prisma` in repository `__init__`
+
+### Never Instantiate Services/Repos Manually
+❌ **WRONG**: `service = UserService()` in routes
+✅ **RIGHT**: `service: UserService = Depends(get_user_service)` in route signature
+
+### Never Mix Layer Concerns
+❌ **WRONG**: Database queries in routes, validation in services
+✅ **RIGHT**: Each layer does one thing - strict separation
+
+### Never Skip Type Hints
+❌ **WRONG**: `async def get_user(id):`
+✅ **RIGHT**: `async def get_user(user_id: int) -> UserResponse:`
+
+### Never Validate in Services/Routes
+❌ **WRONG**: `if not data.get("email"):` checks in service
+✅ **RIGHT**: All validation in Pydantic request models with `Field()` constraints
+
+---
+
+## 📐 NAMING CONVENTIONS (MANDATORY — TWO-LAYER SYSTEM)
+
+This project operates two naming layers that must **never** be mixed. Understand both deeply.
+
+---
+
+### Layer 1 – Python Internals (PEP 8, enforced by ruff)
+
+Python's language convention is law here. Ruff will flag any violation automatically.
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| Python filenames / modules | `snake_case.py` | `auth_service.py`, `user_repository.py` |
+| Functions and methods | `snake_case` | `find_by_email()`, `hash_password()` |
+| Variables and parameters | `snake_case` | `user_id`, `hashed_password`, `phone_number` |
+| Class names | `PascalCase` | `AuthService`, `UserRepository` |
+| Constants (module-level) | `SCREAMING_SNAKE_CASE` | `E164_PATTERN`, `OTP_PATTERN` |
+| Private helpers | `_snake_case` | `_generate_otp()`, `_user_to_payload()` |
+| Pydantic model attributes | `snake_case` (Python-side name) | `first_name`, `phone_number` |
+
+> **Why can't Python files be camelCase?** Python's import system uses the filename as the module name. `from app.services.authService import AuthService` is not a valid Python import style, and `from app.services.auth_service import AuthService` is the only idiomatic, PEP-8-compliant form. Changing filenames would break every import chain in the project. Ruff's `E` ruleset would flag it.
+
+---
+
+### Layer 2 – API Surface (camelCase MANDATORY)
+
+**Every** element that crosses the HTTP boundary (what clients send and receive) must be camelCase. Consistency is non-negotiable. No exceptions.
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| JSON request body keys | camelCase | `firstName`, `phoneNumber`, `userType` |
+| JSON response body keys | camelCase | `firstName`, `emailVerified` |
+| Nested / dynamic object keys | camelCase | Same rule at all nesting levels |
+| Query parameter names | camelCase | `refreshToken`, not `refresh_token` |
+| Path parameter names (OpenAPI) | camelCase | `{userId}`, not `{user_id}` |
+| URL path segments | kebab-case | `/sign-up`, `/verify-otp` (web standard) |
+| Envelope keys | lowercase (single word) | `result`, `message`, `status` |
+| OpenAPI / docs examples | camelCase | All JSON examples use camelCase keys |
+| Validation error message strings | camelCase for field refs | `"phoneNumber must be E.164 format"` |
+
+### How the Two Layers Connect (Pydantic Bridge)
+
+Pydantic models sit at the boundary. They have a Python-side name and an API-side alias:
+
+```python
+# Python-side: snake_case  →  API-side: camelCase (via alias)
+first_name: str = Field(..., alias="firstName")
+phone_number: str = Field(..., alias="phoneNumber")
+
+model_config = {"populate_by_name": True}  # allow construction by either name
+```
+
+- **Requests**: FastAPI reads the JSON alias (`firstName`) and stores it on `first_name`.
+- **Responses**: Always call `model_dump(by_alias=True)` so output JSON is camelCase.
+- **Internal code**: Always use the Python attribute (`user.first_name`), never the alias.
+
+### Discipline
+
+- No mixing. The Python layer is always snake_case. The API layer is always camelCase.
+- No "convenience" shortcuts — e.g., never skip `by_alias=True`, never expose `first_name` in JSON.
+- Validate every new endpoint, field, error message, and doc example on code review.
+
+---
+
+## 📝 VALIDATION STRATEGY
+
+### Pydantic-Only Validation
+- **ALL** request validation happens in Pydantic models (`app/models/requests/`)
+- Use `Field()` for constraints: `min_length`, `max_length`, `ge`, `le`, `regex`
+- Use `EmailStr`, `HttpUrl`, `UUID4` for semantic validation
+- Use enums from `app/constants/` for allowed values
+- Services and routes assume pre-validated input
+- Add `model_config` with `json_schema_extra` for OpenAPI examples
+
+---
+
+## 🔢 CONSTANTS & ENUMS
+
+### Centralized Value Management
+- All enums in `app/constants/` (separate files per domain)
+- Use `str, Enum` pattern for string enums
+- Never hardcode status values, user types, or allowed values
+- Import and use constants everywhere for consistency
+- **Example domains**: user_types, order_statuses, payment_methods, notification_types
+
+---
+
+## 🚨 ERROR HANDLING
+
+### Custom Exception Strategy
+- Create HTTPException subclasses in `app/core/exceptions.py`
+- Each exception encapsulates status code and error detail
+- Services raise domain exceptions (UserNotFoundError, InsufficientPermissionsError)
+- Global exception handler in `main.py` catches all unhandled exceptions
+- Log errors with structured context (never log sensitive data)
+- Return consistent error format to clients
+
+---
+
+## 🔐 SECURITY REQUIREMENTS
+
+### Authentication & Authorization
+- Use `pydantic-settings` for config (load from `.env`)
+- Password hashing with `passlib` (bcrypt scheme)
+- JWT tokens with `python-jose` (include expiration)
+- OAuth2 with `fastapi.security.OAuth2PasswordBearer`
+- Protect endpoints with `Depends(get_current_user)`
+- Never log passwords, tokens, API keys, or PII
+- Validate all user input (Pydantic handles this)
+
+---
+
+## 💾 PRISMA ORM PATTERNS
+
+### Schema Design
+- Use snake_case for database columns with `@map()`
+- Add indexes on frequently queried fields with `@@index()`
+- Use `@unique` for natural keys (email, username)
+- Map table names with `@@map("table_name")`
+- Use proper PostgreSQL types (`Decimal` for money, `DateTime` with timezone)
+
+### Connection Management
+- Singleton Prisma client in `app/core/database.py`
+- Connect on startup event, disconnect on shutdown
+- Never create multiple Prisma instances
+
+### Transaction Patterns
+- Use `async with prisma.tx() as transaction:` for multi-step operations
+- Pass transaction as optional `tx` parameter to repository methods
+- Fall back to main Prisma client if no transaction provided
+- Auto-commit on success, auto-rollback on exception
+
+### Query Best Practices
+- Always use explicit field selection with `select={}`
+- Use `include={}` for efficient relation loading
+- Implement pagination with `skip` and `take`
+- Add `order` for consistent sorting
+
+### Migration Workflow
+- Dev: `prisma migrate dev --name descriptive_name`
+- Prod: `prisma migrate deploy`
+- Always: `prisma generate` after schema changes
+
+---
+
+## 🧪 TESTING STRATEGY
+
+### Test Structure
+- Mirror `app/` structure in `tests/`
+- Use `pytest` with `pytest-asyncio` for async support
+- Use `FastAPI.TestClient` for endpoint testing
+- Override dependencies with mocks using `app.dependency_overrides`
+- Clear overrides after each test
+- Aim for >80% coverage on services and repositories
+
+---
+
+## 🚀 COMMON PATTERNS
+
+### Pagination
+- Create reusable `PaginationParams` model with `skip` and `limit`
+- Inject as dependency in list endpoints
+- Pass to service layer, apply in repository
+
+### Background Tasks
+- Use FastAPI `BackgroundTasks` for async operations (emails, notifications)
+- For heavy jobs, use Celery/RQ/Dramatiq task queue
+- Add tasks after successful response
+
+### Logging
+- Use Python `logging` module with structured format
+- Include context: `user_id`, `request_id`, `operation`, `duration`
+- Log levels: ERROR (failures), WARN (recoverable), INFO (events), DEBUG (dev)
+- Never log sensitive data
+
+---
+
+## ✅ PRE-COMMIT CHECKLIST
+
+Before writing any code, verify:
+1. Type hints on all functions, methods, and variables
+2. All I/O operations use `async/await`
+3. No direct Prisma imports in repositories
+4. No manual service/repository instantiation
+5. All validation in Pydantic models only
+6. All constants in `app/constants/` enums
+7. Custom HTTPException subclasses for errors
+8. Explicit field selection in all queries
+9. Docstrings on all public methods
+10. No sensitive data in logs or error messages
+11. Environment variables in `.env` (never hardcoded)
+12. Prisma migration created for schema changes
+13. API contract: camelCase for JSON keys, query/path param names; kebab-case for URL path segments (see API CONTRACT section)
+
+---
+
+## 🎯 DECISION TREE FOR LAYER PLACEMENT
+
+**Where does this code belong?**
+
+- **HTTP concerns** (status codes, headers, response format) → Routes
+- **Business rules** (discount calculations, eligibility checks) → Services
+- **Data operations** (queries, transactions, CRUD) → Repositories
+- **Input validation** (required fields, format checks) → Pydantic models
+- **Allowed values** (statuses, types, categories) → Constants
+- **Error definitions** (404, 403, 400 responses) → Exceptions
+
+---
+
+**When generating code, always reference these principles. When reviewing code, validate against these patterns. Update this file as architectural patterns evolve.**

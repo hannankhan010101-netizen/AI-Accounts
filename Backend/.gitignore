@@ -1,0 +1,10 @@
+.env
+.env.production.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+prisma/migrations/**/migration_lock.toml
+uploads/*
+!uploads/.gitkeep

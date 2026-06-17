@@ -1,0 +1,96 @@
+# Front-end conventions — AI-Accounts
+
+Authoritative rules for code, structure, and patterns in `Frontend/`. Agents and contributors must follow these. Update this file whenever a convention changes.
+
+## 1. Stack
+
+- **Next.js 14 App Router** (`src/app/`). No Pages Router.
+- **TypeScript strict** throughout (`tsconfig.json`).
+- **Tailwind CSS** for styling. No CSS-in-JS. Small primitives in `src/components/ui/`.
+- **TanStack React Query** for all server state. No raw `useEffect` fetches in pages.
+- **React Hook Form + Zod** for forms and validation (via `@hookform/resolvers/zod`).
+- **Native `fetch`** wrapped by `src/lib/api/client.ts` (`apiFetch<T>(path, options)`). No Axios.
+- **Decimal handling** via `decimal.js` on the frontend; amounts are serialized as strings.
+
+## 2. Project structure
+
+```
+src/
+  app/
+    (auth)/                  # public layouts and pages
+    (app)/                   # authenticated shell; layout enforces tokens + company
+      [...slug]/             # catch-all "coming soon" — must not be removed
+      <feature>/page.tsx
+  components/
+    app/                     # shell pieces (sidebar, top bar, settings mega-menu)
+    ui/                      # primitives (Button, Input, Checkbox, Accordion, …)
+  config/
+    navigation.ts            # sidebar — mirrors catalog §2.1 verbatim
+    settings-menu.ts         # settings mega-menu — mirrors catalog §12.1
+  lib/
+    api/
+      client.ts              # fetch wrapper + JWT refresh
+      auth.ts                # /auth/* + /companies/* wrappers
+      tenant.ts              # /companies/{id}/* wrappers
+      <domain>.ts            # add new domain modules here, not new clients
+    auth/storage.ts          # token + current-company helpers
+    utils.ts                 # cn() helper
+```
+
+- One API module per domain (`auth.ts`, `tenant.ts`, `reports.ts` …). Endpoints live in the module that owns them — there is no central `endpoints.ts`.
+- Tenant-scoped paths use `path("/…")` from `tenant.ts` so `companyId` is injected from auth storage.
+
+## 3. API integration
+
+- Every fetch goes through `apiFetch<T>` so JWT injection and `/auth/refresh` on 401 work consistently.
+- Public auth endpoints pass `anonymous: true`.
+- Request/response interfaces live alongside the API wrapper (`src/lib/api/<domain>.ts`). No central `types/` for transport types — keep them next to the call.
+- Backend returns camelCase JSON; frontend keeps the same casing in types.
+- Errors throw `ApiError` (`status`, `detail`, `message`). UI surfaces `err.message` and falls back to a generic string.
+
+## 4. React Query
+
+- Query keys are arrays starting with the domain: `["business-information"]`, `["sales-invoices", filters]`.
+- Mutations invalidate the matching `queryKey`. Optimistic updates only when the round-trip latency matters.
+- `staleTime` defaults to 30s for lists in `src/app/providers.tsx` (`STALE_LIST_MS`). Wrap queries with `referenceQueryOptions`, `listQueryOptions`, `paginatedListQueryOptions`, or `detailQueryOptions` from `src/lib/query/options.ts`.
+- Form drafts: `useFormDraft` + `DraftRecoveryBanner` for long settings forms (see business-information).
+
+## 5. Forms
+
+- Use `useForm<T>` + `zodResolver(schema)`.
+- Schemas live next to the page (small forms) or in `src/app/<feature>/schema.ts` (shared). One schema = one TypeScript type via `z.infer`.
+- Always render errors through the shared `<FormField>` primitive (`src/components/ui/form-field.tsx`).
+- For multi-row grids, prefer `useFieldArray` from RHF (see `taxes-year-end/page.tsx`).
+
+## 6. UI components
+
+- Primitives in `src/components/ui/` are unstyled-by-default with sane Tailwind defaults; no third-party UI library required (Radix is allowed for dialogs/menus when accessibility is non-trivial).
+- Use `cn()` from `src/lib/utils.ts` to compose class names; never template-string `class=`.
+- Page chrome uses `<PageHeader title="…" breadcrumb="Home / …" />` to match catalog breadcrumbs.
+- Bookmarkable list filters: `useClientList({ syncUrl: true })` (default on app list pages) or `useUrlServerList()` — URL params `q`, `page`, optional `status`.
+- New transactional documents: `useDocumentWorkspaceDraft` on `DocumentWorkspace` forms (bundles draft banner, autosave, `beforeunload` guard). Settings long forms: `useFormDraft` + `DraftRecoveryBanner`.
+- Document detail pages: `detailQueryOptions()` + `DetailPageLoading`; add `[id]/loading.tsx` for route transitions.
+- Draft invoice/bill edit: `salesApi.updateInvoice` / `purchasesApi.updateSupplierBill` (PATCH); pages at `…/[id]/edit`; mappers in `lib/document-form-mappers.ts`.
+
+## 7. Catalog parity
+
+- Every catalog-named screen must land at the route declared in `src/config/navigation.ts` or `src/config/settings-menu.ts`. Do not invent new top-level routes without updating those configs and the catalog cross-reference.
+- Each new page must cite the catalog § in a top-of-file comment so it can be audited against §15 (parity backlog).
+
+## 8. Constants and enums
+
+- Domain constants live next to their usage (e.g. `OTHERS_TOGGLES` in `settings/smart/page.tsx`).
+- Shared cross-feature constants go in `src/config/`.
+- Document codes (SI, SC, VI, VP, PDCR, PDCI, GDNSI, GRNVI, …) come from catalog §14; keep the typed enum in `src/config/document-codes.ts` once introduced.
+
+## 9. Auth and tenancy
+
+- Tokens live in `localStorage` via `src/lib/auth/storage.ts`. Swap to httpOnly cookies before production launch.
+- The (app) layout enforces the presence of tokens; it also auto-activates the first company so tenant routes carry a valid context. Multi-company users switch via the top bar.
+- Lock-date enforcement is server-side; the UI must show server error messages verbatim and not pre-emptively block dates.
+
+## 10. Don'ts
+
+- No Axios, no Formik, no Yup, no Pages Router, no inline fetch in components, no inline class strings, no central `endpoints.ts`, no global types module for transport DTOs.
+- No documentation files unless requested (this rules file and README.md are the exceptions).
+- No silent stub fallbacks for tenant endpoints — if the backend doesn't have it yet, render a "coming soon" via the catch-all rather than fake data.

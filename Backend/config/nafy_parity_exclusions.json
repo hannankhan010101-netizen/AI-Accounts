@@ -1,0 +1,23 @@
+{
+  "tenantId": "cmpfm1nst0001lhq3rz09938z",
+  "tenantLabel": "Nafy-Pharma",
+  "description": "Licensed FA add-ons not purchased for this pharmacy tenant — excluded from Nafy in-scope parity.",
+  "excludedFeatures": [
+    "Google Sign-In",
+    "2FA",
+    "Developer API keys UI",
+    "Inventory (Landed cost, LC)",
+    "Distribution pricing (margin, trade offer, area qty)",
+    "Emails add-on automation",
+    "POS mode",
+    "Supplier notify email/SMS",
+    "Landed cost",
+    "Letter of credit",
+    "Bundle products",
+    "Asset register",
+    "Depreciation run",
+    "Disposal + GL",
+    "Import/export assets",
+    "FA reports category"
+  ]
+}

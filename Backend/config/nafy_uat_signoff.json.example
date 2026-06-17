@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "recordedAt": "2026-05-30",
+  "signers": {
+    "businessOwner": "Full name",
+    "finance": "Full name",
+    "technicalLead": "Full name"
+  },
+  "waivers": "",
+  "notes": "Optional: link to signed PDF in project records."
+}

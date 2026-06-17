@@ -1,0 +1,53 @@
+name: Go-live verification
+
+# Manual gate for migrated tenants (Nafy-Pharma). Requires DB secrets in repo settings.
+on:
+  workflow_dispatch:
+    inputs:
+      tenant_id:
+        description: Company ID to verify
+        required: true
+        default: cmpfm1nst0001lhq3rz09938z
+        type: string
+
+jobs:
+  verify:
+    name: Go-live checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Backend/pyproject.toml
+
+      - name: Install Backend dependencies
+        working-directory: Backend
+        run: pip install -e ".[dev]"
+
+      - name: Generate Prisma client
+        working-directory: Backend
+        run: python -m prisma generate
+
+      - name: Run go-live suite
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          GO_LIVE_COMPANY_ID: ${{ inputs.tenant_id }}
+        run: |
+          python scripts/_generate_feature_matrix.py
+          python scripts/_parity_progress.py --strict-nafy
+          python scripts/fastaccounts_migrate/_go_live_check.py
+
+      - name: Upload sign-off artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nafy-release-signoff
+          path: |
+            Backend/docs/GO-LIVE-SIGNOFF-LATEST.md
+            Backend/docs/NAFY-IN-SCOPE-SIGNOFF-LATEST.md
+            Backend/docs/NAFY-UAT-SIGNOFF-LATEST.md
+            Backend/docs/PARITY-PROGRESS-LATEST.md
+          if-no-files-found: error

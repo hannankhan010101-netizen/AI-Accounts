@@ -1,0 +1,962 @@
+openapi: 3.1.0
+info:
+  title: Fast Accounts API
+  version: 0.1.0
+  description: |
+    Domain-grouped HTTP API for AI-Accounts (Fast Accounts parity). JSON bodies use **camelCase** keys;
+    URL path segments use **kebab-case**. Aligns with Backend/.cursorrules_backend.
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Companies
+  - name: UsersRoles
+  - name: ApiUsers
+  - name: Coa
+  - name: TaxConfig
+  - name: SmartSettings
+  - name: LockDate
+  - name: BusinessInfo
+  - name: Bank
+  - name: Sales
+  - name: Purchases
+  - name: Inventory
+  - name: Journals
+  - name: Budget
+  - name: Reports
+  - name: Dashboard
+  - name: Assembly
+  - name: FixedAssets
+  - name: Platform
+  - name: Integrations
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      operationId: healthCheck
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/auth/sign-up:
+    post:
+      tags: [Auth]
+      summary: Register user and company (email OTP required before login)
+      operationId: authSignUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignUpRequest"
+      responses:
+        "201":
+          description: Pending email verification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignUpPendingResponse"
+
+  /api/v1/auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verify signup email with OTP and receive tokens
+      operationId: authVerifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+
+  /api/v1/auth/resend-otp:
+    post:
+      tags: [Auth]
+      summary: Resend signup or password-reset OTP
+      operationId: authResendOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendOtpRequest"
+      responses:
+        "200":
+          description: OTP reissued or generic acknowledgement
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/SignUpPendingResponse"
+                  - $ref: "#/components/schemas/AuthMessageResponse"
+
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset OTP
+      operationId: authForgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Always returns generic message (no email enumeration)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMessageResponse"
+
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using email OTP
+      operationId: authResetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMessageResponse"
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Password login (requires verified email)
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token (rotates refresh token)
+      operationId: authRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Client logout hint (stateless JWT until blocklist exists)
+      operationId: authLogout
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutResponse"
+
+  /api/v1/companies:
+    get:
+      tags: [Companies]
+      summary: List companies for current user
+      operationId: listCompanies
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Companies]
+      summary: Create additional company for current user
+      operationId: createCompany
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCompanyRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companyId:
+                    type: string
+                  name:
+                    type: string
+
+  /api/v1/companies/{companyId}/switch:
+    post:
+      tags: [Companies]
+      summary: Set active company context (returns new token pair)
+      operationId: switchCompany
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: New tokens with selected companyId claim
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+
+  /api/v1/companies/{companyId}/users:
+    get:
+      tags: [UsersRoles]
+      summary: List users in company
+      operationId: listCompanyUsers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/roles:
+    get:
+      tags: [UsersRoles]
+      summary: List roles
+      operationId: listRoles
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [UsersRoles]
+      summary: Create role
+      operationId: createRole
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "201":
+          description: Created
+
+  /api/v1/companies/{companyId}/coa/categories:
+    get:
+      tags: [Coa]
+      summary: List COA categories (chart root)
+      operationId: listCoaCategories
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/taxes-year-end:
+    get:
+      tags: [TaxConfig]
+      summary: Get taxes and year-end configuration
+      operationId: getTaxesYearEnd
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [TaxConfig]
+      summary: Update taxes and year-end configuration
+      operationId: putTaxesYearEnd
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/smart-settings:
+    get:
+      tags: [SmartSettings]
+      summary: Get Smart Settings document
+      operationId: getSmartSettings
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [SmartSettings]
+      summary: Replace Smart Settings document
+      operationId: putSmartSettings
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/lock-date:
+    get:
+      tags: [LockDate]
+      summary: Get global and per-user lock dates
+      operationId: getLockDate
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [LockDate]
+      summary: Update lock date policy
+      operationId: putLockDate
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/business-information:
+    get:
+      tags: [BusinessInfo]
+      summary: Get business information for prints
+      operationId: getBusinessInformation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [BusinessInfo]
+      summary: Update business information
+      operationId: putBusinessInformation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/bank-accounts:
+    get:
+      tags: [Bank]
+      summary: List bank and cash accounts
+      operationId: listBankAccounts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/bank-payments:
+    get:
+      tags: [Bank]
+      summary: List bank payments (EP)
+      operationId: listBankPayments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Bank]
+      summary: Create bank payment voucher
+      operationId: createBankPayment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankPaymentCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankPayment"
+
+  /api/v1/companies/{companyId}/customers:
+    get:
+      tags: [Sales]
+      summary: List customers
+      operationId: listCustomers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/sales-invoices:
+    get:
+      tags: [Sales]
+      summary: List sales invoices
+      operationId: listSalesInvoices
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Sales]
+      summary: Create sales invoice
+      operationId: createSalesInvoice
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "201":
+          description: Created
+
+  /api/v1/companies/{companyId}/supplier-bills:
+    get:
+      tags: [Purchases]
+      summary: List supplier bills (VI)
+      operationId: listSupplierBills
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/products:
+    get:
+      tags: [Inventory]
+      summary: List products
+      operationId: listProducts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/journals:
+    get:
+      tags: [Journals]
+      summary: List general journals
+      operationId: listJournals
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Journals]
+      summary: Create journal voucher
+      operationId: createJournal
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "201":
+          description: Created
+
+  /api/v1/companies/{companyId}/budgets:
+    get:
+      tags: [Budget]
+      summary: List budgets (module-gated)
+      operationId: listBudgets
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/reports/definitions:
+    get:
+      tags: [Reports]
+      summary: List report definitions (metadata + filter schema)
+      operationId: listReportDefinitions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: hub
+          in: query
+          description: standard | analytical
+          schema:
+            type: string
+            enum: [standard, analytical]
+        - name: favouritesOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportDefinition"
+
+  /api/v1/companies/{companyId}/reports/runs:
+    post:
+      tags: [Reports]
+      summary: Start a report run
+      operationId: createReportRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportRunRequest"
+      responses:
+        "202":
+          description: Run accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRunAccepted"
+
+  /api/v1/companies/{companyId}/reports/runs/{runId}:
+    get:
+      tags: [Reports]
+      summary: Get report run status and paginated rows
+      operationId: getReportRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/reports/runs/{runId}/export:
+    post:
+      tags: [Reports]
+      summary: Export completed run (Excel/PDF)
+      operationId: exportReportRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [xlsx, pdf]
+      responses:
+        "200":
+          description: Export job or file URL
+
+  /api/v1/companies/{companyId}/dashboard/layout:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard widget layout
+      operationId: getDashboardLayout
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [Dashboard]
+      summary: Update dashboard layout
+      operationId: putDashboardLayout
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/attachments:
+    get:
+      tags: [Platform]
+      summary: List attachments for an entity
+      operationId: listAttachments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: entityType
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Platform]
+      summary: Register attachment metadata (upload flow TBD)
+      operationId: createAttachment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "201":
+          description: Created
+
+  /api/v1/companies/{companyId}/document-numbers/next:
+    post:
+      tags: [Platform]
+      summary: Reserve next document number for a sequence key
+      operationId: reserveNextDocumentNumber
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sequenceKey]
+              properties:
+                sequenceKey:
+                  type: string
+                  description: e.g. SI, EP, journal
+      responses:
+        "200":
+          description: Next number allocated
+
+  /api/v1/companies/{companyId}/import-jobs:
+    get:
+      tags: [Platform]
+      summary: List import jobs
+      operationId: listImportJobs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [Platform]
+      summary: Create import job (Excel etc.)
+      operationId: createImportJob
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "202":
+          description: Accepted
+
+  /api/v1/companies/{companyId}/audit-log:
+    get:
+      tags: [Platform]
+      summary: Query user / transaction audit log
+      operationId: listAuditLog
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/companies/{companyId}/approval-policies:
+    get:
+      tags: [Platform]
+      summary: List approval policies by entity type
+      operationId: listApprovalPolicies
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [Platform]
+      summary: Upsert approval policy for entity type
+      operationId: putApprovalPolicy
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "200":
+          description: OK
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    companyId:
+      name: companyId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    SignUpRequest:
+      type: object
+      required: [email, password, firstName, lastName, companyName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        firstName:
+          type: string
+        lastName:
+          type: string
+        companyName:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    SignUpPendingResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        email:
+          type: string
+          format: email
+        expiresAt:
+          type: string
+          format: date-time
+        devOtp:
+          type: string
+          nullable: true
+          description: Only when AUTH_EXPOSE_OTP_IN_RESPONSE=true (local dev)
+
+    VerifyEmailRequest:
+      type: object
+      required: [email, otpCode]
+      properties:
+        email:
+          type: string
+          format: email
+        otpCode:
+          type: string
+          pattern: "^\\d{6}$"
+
+    ResendOtpRequest:
+      type: object
+      required: [email, purpose]
+      properties:
+        email:
+          type: string
+          format: email
+        purpose:
+          type: string
+          enum: [signup, password_reset]
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required: [email, otpCode, newPassword]
+      properties:
+        email:
+          type: string
+          format: email
+        otpCode:
+          type: string
+          pattern: "^\\d{6}$"
+        newPassword:
+          type: string
+          minLength: 8
+
+    CreateCompanyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+
+    BankPaymentCreateRequest:
+      type: object
+      required: [bankAccountId, paymentDate, totalAmount]
+      properties:
+        bankAccountId:
+          type: string
+        paymentDate:
+          type: string
+          format: date-time
+        totalAmount:
+          type: string
+          description: Decimal as string (e.g. "100.00")
+
+    BankPayment:
+      type: object
+      properties:
+        id:
+          type: string
+        companyId:
+          type: string
+        voucherNumber:
+          type: string
+        paymentDate:
+          type: string
+          format: date-time
+        bankAccountId:
+          type: string
+        totalAmount:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AuthMessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    LogoutResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    AuthTokensResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          type: string
+          example: bearer
+
+    ReportDefinition:
+      type: object
+      properties:
+        reportId:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        hub:
+          type: string
+          enum: [standard, analytical]
+        filterSchema:
+          type: object
+          additionalProperties: true
+
+    ReportRunRequest:
+      type: object
+      required: [reportId, criteria]
+      properties:
+        reportId:
+          type: string
+        criteria:
+          type: object
+          additionalProperties: true
+
+    ReportRunAccepted:
+      type: object
+      properties:
+        runId:
+          type: string
+        status:
+          type: string
+          example: pending

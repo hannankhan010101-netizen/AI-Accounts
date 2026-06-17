@@ -1,0 +1,14 @@
+# Railway — set service root directory to Backend/ in the dashboard.
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Runs once per deploy before traffic (requires DIRECT_URL in service variables).
+releaseCommand = "PYTHONPATH=src python scripts/migrate_deploy.py"

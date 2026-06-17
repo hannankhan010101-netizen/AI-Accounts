@@ -1,0 +1,321 @@
+// Data ingestion pipeline metadata — Node Prisma (ing_* tables).
+// Target business data lives in AI-Accounts Backend tables via API.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MigrationMode {
+  batch
+  incremental
+  webhook
+  api_pull
+}
+
+enum MigrationStatus {
+  pending
+  extracting
+  validating
+  mapping
+  transforming
+  deduping
+  reconciling
+  importing
+  verifying
+  completed
+  failed
+  cancelled
+  rolling_back
+}
+
+enum PipelineStage {
+  extract
+  validate
+  map
+  transform
+  dedupe
+  reconcile
+  import
+  verify
+  audit
+}
+
+enum ChunkStatus {
+  pending
+  processing
+  completed
+  failed
+  skipped
+  rolled_back
+}
+
+enum SourceType {
+  csv
+  xlsx
+  json
+  api
+  webhook
+  fastaccounts
+}
+
+enum EntityModule {
+  customers
+  suppliers
+  chart_of_accounts
+  invoices
+  bills
+  receipts
+  payments
+  products
+  stock_movements
+  journals
+  taxes
+  projects
+  bank_transactions
+}
+
+enum ValidationSeverity {
+  error
+  warning
+  info
+}
+
+model IngMigrationRun {
+  id              String           @id @default(cuid())
+  companyId       String           @map("company_id")
+  name            String
+  module          EntityModule
+  mode            MigrationMode    @default(batch)
+  status          MigrationStatus  @default(pending)
+  sourceSystem    String           @default("generic") @map("source_system")
+  mappingProfileId String?         @map("mapping_profile_id")
+  sourceType      SourceType       @map("source_type")
+  sourceKey       String?          @map("source_key")
+  sourceFileName  String?          @map("source_file_name")
+  totalRows       Int              @default(0) @map("total_rows")
+  processedRows   Int              @default(0) @map("processed_rows")
+  successRows     Int              @default(0) @map("success_rows")
+  errorRows       Int              @default(0) @map("error_rows")
+  skippedRows     Int              @default(0) @map("skipped_rows")
+  duplicateRows   Int              @default(0) @map("duplicate_rows")
+  chunkSize       Int              @default(500) @map("chunk_size")
+  totalChunks     Int              @default(0) @map("total_chunks")
+  completedChunks Int              @default(0) @map("completed_chunks")
+  currentStage    PipelineStage?   @map("current_stage")
+  options         Json             @default("{}")
+  errorSummary    String?          @map("error_summary")
+  startedAt       DateTime?        @map("started_at")
+  completedAt     DateTime?        @map("completed_at")
+  createdByUserId String?          @map("created_by_user_id")
+  idempotencyKey  String?          @unique @map("idempotency_key")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  mappingProfile  IngMappingProfile? @relation(fields: [mappingProfileId], references: [id])
+  chunks          IngMigrationChunk[]
+  stagingRows     IngStagingRow[]
+  stageLogs       IngStageLog[]
+  validationIssues IngValidationIssue[]
+  externalIdMaps  IngExternalIdMap[]
+  reconciliation  IngReconciliationReport?
+  auditEntries    IngAuditEntry[]
+
+  @@index([companyId, status])
+  @@index([companyId, module])
+  @@map("ing_migration_runs")
+}
+
+model IngMigrationChunk {
+  id              String       @id @default(cuid())
+  migrationRunId  String       @map("migration_run_id")
+  chunkIndex      Int          @map("chunk_index")
+  stage           PipelineStage
+  status          ChunkStatus  @default(pending)
+  rowStart        Int          @map("row_start")
+  rowEnd          Int          @map("row_end")
+  rowCount        Int          @default(0) @map("row_count")
+  successCount    Int          @default(0) @map("success_count")
+  errorCount      Int          @default(0) @map("error_count")
+  attempts        Int          @default(0)
+  lastError       String?      @map("last_error")
+  idempotencyKey  String       @unique @map("idempotency_key")
+  startedAt       DateTime?    @map("started_at")
+  completedAt     DateTime?    @map("completed_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  migrationRun IngMigrationRun @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+
+  @@unique([migrationRunId, chunkIndex, stage])
+  @@index([migrationRunId, status])
+  @@map("ing_migration_chunks")
+}
+
+model IngStagingRow {
+  id             String   @id @default(cuid())
+  migrationRunId String   @map("migration_run_id")
+  companyId      String   @map("company_id")
+  rowIndex       Int      @map("row_index")
+  chunkIndex     Int      @map("chunk_index")
+  sourceData     Json     @map("source_data")
+  mappedData     Json?    @map("mapped_data")
+  transformedData Json?   @map("transformed_data")
+  fingerprint    String?
+  externalId     String?  @map("external_id")
+  isDuplicate    Boolean  @default(false) @map("is_duplicate")
+  isValid        Boolean  @default(true) @map("is_valid")
+  imported       Boolean  @default(false)
+  targetId       String?  @map("target_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+
+  @@unique([migrationRunId, rowIndex])
+  @@index([migrationRunId, chunkIndex])
+  @@index([migrationRunId, fingerprint])
+  @@index([companyId, externalId])
+  @@map("ing_staging_rows")
+}
+
+model IngMappingProfile {
+  id          String       @id @default(cuid())
+  companyId   String       @map("company_id")
+  name        String
+  module      EntityModule
+  sourceSystem String      @default("generic") @map("source_system")
+  isDefault   Boolean      @default(false) @map("is_default")
+  description String?
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  rules        IngMappingRule[]
+  migrationRuns IngMigrationRun[]
+
+  @@unique([companyId, name])
+  @@index([companyId, module])
+  @@map("ing_mapping_profiles")
+}
+
+model IngMappingRule {
+  id               String  @id @default(cuid())
+  mappingProfileId String  @map("mapping_profile_id")
+  sourceField      String  @map("source_field")
+  targetField      String  @map("target_field")
+  transform        String?
+  defaultValue     String? @map("default_value")
+  isRequired       Boolean @default(false) @map("is_required")
+  confidence       Float?
+  sortOrder        Int     @default(0) @map("sort_order")
+
+  mappingProfile IngMappingProfile @relation(fields: [mappingProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([mappingProfileId, targetField])
+  @@map("ing_mapping_rules")
+}
+
+model IngValidationIssue {
+  id             String             @id @default(cuid())
+  migrationRunId String             @map("migration_run_id")
+  rowIndex       Int?               @map("row_index")
+  field          String?
+  code           String
+  message        String
+  severity       ValidationSeverity @default(error)
+  suggestedFix   String?            @map("suggested_fix")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+
+  @@index([migrationRunId, severity])
+  @@map("ing_validation_issues")
+}
+
+model IngExternalIdMap {
+  id             String       @id @default(cuid())
+  companyId      String       @map("company_id")
+  migrationRunId String?      @map("migration_run_id")
+  sourceSystem   String       @map("source_system")
+  entityModule   EntityModule @map("entity_module")
+  externalId     String       @map("external_id")
+  targetId       String       @map("target_id")
+  targetCode     String?      @map("target_code")
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun? @relation(fields: [migrationRunId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, sourceSystem, entityModule, externalId])
+  @@index([companyId, entityModule, targetId])
+  @@map("ing_external_id_maps")
+}
+
+model IngStageLog {
+  id             String        @id @default(cuid())
+  migrationRunId String        @map("migration_run_id")
+  stage          PipelineStage
+  chunkIndex     Int?          @map("chunk_index")
+  status         String
+  message        String?
+  metrics        Json          @default("{}")
+  durationMs     Int?          @map("duration_ms")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+
+  @@index([migrationRunId, stage])
+  @@map("ing_stage_logs")
+}
+
+model IngReconciliationReport {
+  id             String   @id @default(cuid())
+  migrationRunId String   @unique @map("migration_run_id")
+  passed         Boolean  @default(false)
+  glBalanced     Boolean? @map("gl_balanced")
+  glDelta        String?  @map("gl_delta")
+  inventoryDelta String?  @map("inventory_delta")
+  arTotal        String?  @map("ar_total")
+  apTotal        String?  @map("ap_total")
+  details        Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+
+  @@map("ing_reconciliation_reports")
+}
+
+model IngAuditEntry {
+  id             String   @id @default(cuid())
+  companyId      String   @map("company_id")
+  migrationRunId String?  @map("migration_run_id")
+  action         String
+  actorUserId    String?  @map("actor_user_id")
+  entityType     String?  @map("entity_type")
+  entityId       String?  @map("entity_id")
+  details        Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  migrationRun IngMigrationRun? @relation(fields: [migrationRunId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([migrationRunId])
+  @@map("ing_audit_entries")
+}
+
+model IngWebhookSubscription {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  provider    String
+  secretHash  String   @map("secret_hash")
+  module      EntityModule
+  mappingProfileId String? @map("mapping_profile_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, provider, module])
+  @@map("ing_webhook_subscriptions")
+}

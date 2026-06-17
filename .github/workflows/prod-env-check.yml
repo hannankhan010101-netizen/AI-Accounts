@@ -1,0 +1,28 @@
+name: Production env check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  env-check:
+    name: Validate production env secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Strict env validation
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          OUTBOX_POLL_ENABLED: ${{ secrets.OUTBOX_POLL_ENABLED }}
+          AUTH_EXPOSE_OTP_IN_RESPONSE: "false"
+        run: python scripts/_prod_env_check.py --strict
