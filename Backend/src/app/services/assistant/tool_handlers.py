@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from app.core.exceptions import ForbiddenError
+from app.core.exceptions import ForbiddenError, ValidationAppError
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.product_repository import ProductRepository
 from app.repositories.sales_invoice_repository import SalesInvoiceRepository
+from app.services.auto_code_service import AutoCodeService
 from app.services.permission_service import PermissionService
 
 
@@ -23,6 +25,18 @@ def _has(perms: list[str], code: str) -> bool:
     return False
 
 
+def _to_decimal(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
 class AssistantToolHandlers:
     def __init__(
         self,
@@ -31,11 +45,13 @@ class AssistantToolHandlers:
         sales_invoice_repository: SalesInvoiceRepository,
         product_repository: ProductRepository,
         audit_log_repository: AuditLogRepository,
+        auto_code_service: AutoCodeService,
     ) -> None:
         self._perms = permission_service
         self._invoices = sales_invoice_repository
         self._products = product_repository
         self._audit = audit_log_repository
+        self._auto_code = auto_code_service
 
     async def execute(
         self,
@@ -157,6 +173,70 @@ class AssistantToolHandlers:
                     for p in products[:limit]
                 ]
             return {"ok": True, "products": out}
+
+        if name == "createProduct":
+            try:
+                await self._perms.assert_allowed(
+                    company_id=company_id,
+                    user_id=user_id,
+                    permission="inventory.products.create",
+                )
+            except ForbiddenError as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                return {"ok": False, "error": detail.get("message", "Forbidden")}
+
+            product_name = str(arguments.get("name") or "").strip()
+            if not product_name:
+                return {"ok": False, "error": "Product name is required."}
+
+            provided_code = str(arguments.get("code") or "").strip() or None
+            price = _to_decimal(arguments.get("price") if arguments.get("price") is not None else arguments.get("salePrice"))
+            cost = _to_decimal(arguments.get("cost"))
+            is_stock_raw = arguments.get("isStock")
+            is_stock = True if is_stock_raw is None else bool(is_stock_raw)
+
+            try:
+                code = await self._auto_code.resolve_code(
+                    company_id=company_id,
+                    entity_key="product",
+                    provided=provided_code,
+                )
+            except ValidationAppError as exc:
+                return {"ok": False, "error": str(exc)}
+
+            existing = await self._products.get_by_codes(company_id=company_id, codes=[code])
+            if existing:
+                row = existing[0]
+                return {
+                    "ok": False,
+                    "error": f"Product code '{code}' already exists.",
+                    "existingProduct": {
+                        "id": row.id,
+                        "code": row.code,
+                        "name": row.name,
+                    },
+                }
+
+            row = await self._products.create_product(
+                company_id=company_id,
+                code=code,
+                name=product_name,
+                is_stock=is_stock,
+                cost=cost,
+                sale_price=price,
+            )
+            return {
+                "ok": True,
+                "product": {
+                    "id": row.id,
+                    "code": row.code,
+                    "name": row.name,
+                    "cost": str(row.cost),
+                    "salePrice": str(row.salePrice),
+                    "unit": row.unit,
+                },
+                "invalidate": ["products"],
+            }
 
         if name == "explainAuditEntry":
             if not _has(perms, "settings.audit.read") and not _has(perms, "*"):

@@ -244,8 +244,16 @@ export interface Product {
   name: string;
   code?: string | null;
   unit?: string | null;
+  category?: string | null;
   salePrice?: string | number | null;
   cost?: string | number | null;
+  isStock?: boolean;
+  isArchived?: boolean;
+  primaryImageAttachmentId?: string | null;
+  lowStockLevel?: string | number | null;
+  binLocation?: string | null;
+  customFields?: Record<string, unknown>;
+  uoms?: ProductUomRow[];
   [key: string]: unknown;
 }
 
@@ -481,12 +489,64 @@ export interface CreateProductInput {
   code?: string | null;
   name: string;
   isStock: boolean;
+  unit?: string;
+  category?: string | null;
+  salePrice?: number | string | null;
+  cost?: number | string | null;
+  lowStockLevel?: number | string | null;
+  binLocation?: string | null;
+  openingStock?: { quantity: number | string; rate?: number | string | null };
+}
+
+export interface UpdateProductInput {
+  name: string;
+  isStock: boolean;
+  unit?: string;
+  category?: string | null;
+  salePrice?: number | string | null;
+  cost?: number | string | null;
+  lowStockLevel?: number | string | null;
+  binLocation?: string | null;
+  customFields?: Record<string, unknown>;
 }
 
 export const inventoryApi = {
-  listProducts: () => apiFetch<{ result: Product[] }>(path("/products")),
+  listProducts: (params?: { page?: number; pageSize?: number; includeArchived?: boolean }) =>
+    apiFetch<{ result: Product[]; total?: number; page?: number; pageSize?: number }>(
+      path("/products"),
+      {
+        query: {
+          page: params?.page,
+          pageSize: params?.pageSize,
+          includeArchived: params?.includeArchived,
+        },
+      },
+    ),
+  searchProducts: (q: string, limit = 20) =>
+    apiFetch<{ result: Product[] }>(path("/products/search"), { query: { q, limit } }),
+  getProduct: (productId: string) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}`)),
   createProduct: (body: CreateProductInput) =>
     apiFetch<{ result: Product }>(path("/products"), { method: "POST", body }),
+  updateProduct: (productId: string, body: UpdateProductInput) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}`), { method: "PUT", body }),
+  archiveProduct: (productId: string) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}/archive`), { method: "POST" }),
+  restoreProduct: (productId: string) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}/restore`), { method: "POST" }),
+  setPrimaryImage: (productId: string, attachmentId: string | null) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}/primary-image`), {
+      method: "PATCH",
+      body: { attachmentId },
+    }),
+  applyOpeningStock: (
+    productId: string,
+    body: { quantity: number | string; rate?: number | string | null },
+  ) =>
+    apiFetch<{ result: Product }>(path(`/products/${productId}/opening-stock`), {
+      method: "POST",
+      body,
+    }),
   listProductUoms: (productId: string) =>
     apiFetch<{ result: ProductUomRow[] }>(path(`/products/${productId}/uoms`)),
   upsertProductUom: (
@@ -964,6 +1024,32 @@ export interface TaskRow {
   summary: string;
 }
 
+export interface NotificationItem {
+  id: string;
+  type: string;
+  severity: "critical" | "warn" | "info" | "good";
+  title: string;
+  message: string;
+  href: string;
+  createdAt: string;
+  read: boolean;
+  productCode?: string;
+  batchNumber?: string;
+  expiryDate?: string | null;
+}
+
+export const notificationsApi = {
+  list: () =>
+    apiFetch<{ result: { items: NotificationItem[]; unreadCount: number } }>(
+      path("/notifications"),
+    ),
+  runExpiryDigest: () =>
+    apiFetch<{ result: { sent: boolean; message: string } }>(
+      path("/inventory/expiry-alerts/run-due"),
+      { method: "POST" },
+    ),
+};
+
 export const tasksApi = {
   list: () => apiFetch<{ result: TaskRow[] }>(path("/my-tasks")),
 };
@@ -1266,6 +1352,8 @@ export interface ProductBatch {
   expiryDate?: string | null;
   quantityOnHand: string;
   notes?: string | null;
+  expiryStatus?: "expired" | "expiring_soon" | "ok" | "no_expiry";
+  daysToExpiry?: number | null;
   [key: string]: unknown;
 }
 export interface ProductBatchCreateInput {
@@ -1297,9 +1385,17 @@ export const inventoryWritesApi = {
       body,
     }),
 
-  listBatches: (productCode?: string) =>
+  listBatches: (params?: {
+    productCode?: string;
+    filter?: "expired" | "expiring" | "all";
+    expiringWithinDays?: number;
+  }) =>
     apiFetch<{ result: ProductBatch[] }>(path("/product-batches"), {
-      query: { productCode },
+      query: {
+        productCode: params?.productCode,
+        filter: params?.filter,
+        expiringWithinDays: params?.expiringWithinDays,
+      },
     }),
   createBatch: (body: ProductBatchCreateInput) =>
     apiFetch<{ result: ProductBatch }>(path("/product-batches"), {
@@ -3153,6 +3249,26 @@ export const attachmentsApi = {
     if (!companyId) return "#";
     return `/api/v1/companies/${companyId}/attachments/${attachmentId}/download`;
   },
+  delete: async (attachmentId: string, entityType?: string) => {
+    const companyId = getCurrentCompanyId();
+    if (!companyId) throw new Error("No company selected");
+    const qs = entityType ? `?entityType=${encodeURIComponent(entityType)}` : "";
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    const res = await fetch(
+      `/api/v1/companies/${companyId}/attachments/${attachmentId}${qs}`,
+      {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!res.ok && res.status !== 204) {
+      const err = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new Error(err.detail ?? res.statusText);
+    }
+  },
+  productImageUrl: (attachmentId: string | null | undefined) =>
+    attachmentId ? attachmentsApi.downloadUrl(attachmentId) : null,
 };
 
 export interface IntegrationProviderStatus {

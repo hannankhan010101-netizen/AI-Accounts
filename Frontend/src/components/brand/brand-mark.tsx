@@ -1,6 +1,4 @@
-import Image from "next/image";
-
-import { BRAND } from "@/lib/brand";
+import { BrandMarkIcon } from "@/components/brand/brand-mark-icon";
 import { cn } from "@/lib/utils";
 
 interface BrandMarkProps {
@@ -9,21 +7,12 @@ interface BrandMarkProps {
   priority?: boolean;
 }
 
-/** Brand symbol only (no wordmark plate) — `/public/brand/symbol.png`. */
-export function BrandMark({ size = 32, className, priority = false }: BrandMarkProps) {
+/** Brand symbol — ledger + AI mark for shell UI. */
+export function BrandMark({ size = 32, className }: BrandMarkProps) {
   return (
-    <Image
-      src={BRAND.symbol}
-      alt=""
-      width={size}
-      height={size}
-      priority={priority}
-      aria-hidden
-      className={cn(
-        "object-contain object-center",
-        "dark:brightness-0 dark:invert",
-        className,
-      )}
+    <BrandMarkIcon
+      size={size}
+      className={cn("text-brand-600 dark:text-brand-300", className)}
     />
   );
 }

@@ -32,6 +32,13 @@ def test_client_tool_registry():
     assert not is_client_tool("searchInvoices")
 
 
+def test_tools_for_mode_inventory():
+    names = {t["function"]["name"] for t in tools_for_mode("inventory", "/inventory/products")}
+    assert "searchInventory" in names
+    assert "createProduct" in names
+    assert "navigate" in names
+
+
 def test_tools_for_mode_invoice():
     names = {t["function"]["name"] for t in tools_for_mode("invoice", "/sales/invoices")}
     assert "searchInvoices" in names

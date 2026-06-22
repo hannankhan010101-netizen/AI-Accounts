@@ -1,20 +1,18 @@
 "use client";
 
-import { useReducedMotion as useFramerReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 
-/** SSR-safe reduced-motion detection (Framer + media query). */
+/** SSR-safe reduced-motion detection — stable on server and first client paint. */
 export function useReducedMotion(): boolean {
-  const framer = useFramerReducedMotion();
-  const [mq, setMq] = useState(false);
+  const [reduced, setReduced] = useState(false);
 
   useEffect(() => {
     const q = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setMq(q.matches);
+    const update = () => setReduced(q.matches);
     update();
     q.addEventListener("change", update);
     return () => q.removeEventListener("change", update);
   }, []);
 
-  return Boolean(framer ?? mq);
+  return reduced;
 }

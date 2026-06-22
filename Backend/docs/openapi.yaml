@@ -468,14 +468,149 @@ paths:
   /api/v1/companies/{companyId}/products:
     get:
       tags: [Inventory]
-      summary: List products
+      summary: List products (paginated)
       operationId: listProducts
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/companyId"
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 500 }
+        - name: includeArchived
+          in: query
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: OK
+          description: Paginated product list
+    post:
+      tags: [Inventory]
+      summary: Create product (§7.1)
+      operationId: createProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+      responses:
+        "201":
+          description: Created
+
+  /api/v1/companies/{companyId}/products/search:
+    get:
+      tags: [Inventory]
+      summary: Search products by code, name, or category
+      operationId: searchProducts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: activeOnly
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: Matching products
+
+  /api/v1/companies/{companyId}/products/{productId}:
+    get:
+      tags: [Inventory]
+      summary: Get product by id
+      operationId: getProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Product detail with UOM summary
+    put:
+      tags: [Inventory]
+      summary: Update product master
+      operationId: updateProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Updated product
+
+  /api/v1/companies/{companyId}/products/{productId}/archive:
+    post:
+      tags: [Inventory]
+      summary: Archive product
+      operationId: archiveProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived
+
+  /api/v1/companies/{companyId}/products/{productId}/restore:
+    post:
+      tags: [Inventory]
+      summary: Restore archived product
+      operationId: restoreProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Restored
+
+  /api/v1/companies/{companyId}/products/{productId}/primary-image:
+    patch:
+      tags: [Inventory]
+      summary: Set or clear primary product image
+      operationId: setProductPrimaryImage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Updated
+
+  /api/v1/companies/{companyId}/products/{productId}/opening-stock:
+    post:
+      tags: [Inventory]
+      summary: Add opening stock batch
+      operationId: addProductOpeningStock
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/companyId"
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Opening stock applied
 
   /api/v1/companies/{companyId}/journals:
     get:

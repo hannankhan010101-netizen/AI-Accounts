@@ -127,6 +127,7 @@ class AuthService:
         company_id = await self._companies.get_default_company_id_for_user(user_id=user.id)
         if company_id is None:
             raise UnauthorizedError("User has no company membership")
+        await self._ensure_founding_role(company_id=company_id, user_id=user.id)
         return self._issue_tokens(user_id=user.id, company_id=company_id)
 
     async def resend_otp(self, *, request: ResendOtpRequest) -> SignUpPendingResponse | AuthMessageResponse:
@@ -175,23 +176,48 @@ class AuthService:
             )
         raise ValidationAppError("Unsupported purpose")
 
-    async def forgot_password(self, *, request: ForgotPasswordRequest) -> AuthMessageResponse:
-        """Create a password-reset OTP when the verified account exists."""
+    async def forgot_password(
+        self, *, request: ForgotPasswordRequest
+    ) -> SignUpPendingResponse | AuthMessageResponse:
+        """Issue password-reset OTP for verified accounts; signup OTP if still unverified."""
 
         user = await self._users.find_by_email(email=request.email)
-        if user is None or not user.emailVerified:
+        if user is None:
             return AuthMessageResponse(message="If the account exists, a code has been sent.")
-        _expires_at, plain = await self._store_otp(
+        if not user.emailVerified:
+            expires_at, plain = await self._store_otp(
+                user_id=user.id,
+                email=request.email,
+                purpose=otp_purpose.SIGNUP,
+            )
+            email_sent = await self._email.send_otp_email(
+                to=request.email,
+                code=plain,
+                purpose=otp_purpose.SIGNUP,
+            )
+            return self._pending_response(
+                email=request.email,
+                expires_at=expires_at,
+                plain_otp=plain,
+                email_sent=email_sent,
+            )
+        expires_at, plain = await self._store_otp(
             user_id=user.id,
             email=request.email,
             purpose=otp_purpose.PASSWORD_RESET,
         )
-        await self._email.send_otp_email(
+        email_sent = await self._email.send_otp_email(
             to=request.email,
             code=plain,
             purpose=otp_purpose.PASSWORD_RESET,
         )
-        return AuthMessageResponse(message="If the account exists, a code has been sent.")
+        return self._pending_response(
+            email=request.email,
+            expires_at=expires_at,
+            plain_otp=plain,
+            email_sent=email_sent,
+            flow="password_reset",
+        )
 
     async def reset_password(self, *, request: ResetPasswordRequest) -> AuthMessageResponse:
         """Apply a new password after OTP validation."""
@@ -328,7 +354,14 @@ class AuthService:
         company_id = await self._companies.get_default_company_id_for_user(user_id=user.id)
         if company_id is None:
             raise UnauthorizedError("User has no company membership")
+        await self._ensure_founding_role(company_id=company_id, user_id=user.id)
         return self._issue_tokens(user_id=user.id, company_id=company_id)
+
+    async def _ensure_founding_role(self, *, company_id: str, user_id: str) -> None:
+        """Backfill Super Admin when company bootstrap did not attach a membership role."""
+
+        await self._bootstrap.seed_missing_template_roles(company_id=company_id)
+        await self._bootstrap.assign_admin_role(company_id=company_id, user_id=user_id)
 
     def _issue_tokens(self, *, user_id: str, company_id: str) -> AuthTokensResponse:
         """Build access and refresh JWTs embedding active company."""
@@ -347,6 +380,7 @@ class AuthService:
         expires_at: datetime,
         plain_otp: str,
         email_sent: bool = True,
+        flow: str = "signup",
     ) -> SignUpPendingResponse:
         """Build pending response; include code in API when email could not be delivered."""
 
@@ -359,7 +393,9 @@ class AuthService:
         dev = plain_otp if expose else None
         if email_sent:
             message = (
-                "Verification code sent to your email. Complete verification to sign in."
+                "Password reset code sent to your email."
+                if flow == "password_reset"
+                else "Verification code sent to your email. Complete verification to sign in."
             )
         else:
             message = (

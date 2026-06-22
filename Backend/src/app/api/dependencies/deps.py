@@ -116,6 +116,7 @@ from app.services.field_masking_service import FieldMaskingService
 from app.services.module_entitlement_service import ModuleEntitlementService
 from app.services.module_access_service import ModuleAccessService
 from app.services.custom_field_service import CustomFieldService
+from app.services.product_service import ProductService
 from app.services.product_uom_service import ProductUomService
 from app.services.document_reversal_service import DocumentReversalService
 from app.services.inventory_quantity_service import InventoryQuantityService
@@ -742,6 +743,7 @@ def get_assistant_tool_handlers(
     ],
     product_repository: Annotated["ProductRepository", Depends(get_product_repository)],
     audit_log_repository: Annotated[AuditLogRepository, Depends(get_audit_log_repository)],
+    auto_code_service: Annotated[AutoCodeService, Depends(get_auto_code_service)],
 ) -> "AssistantToolHandlers":
     from app.services.assistant.tool_handlers import AssistantToolHandlers
 
@@ -750,6 +752,7 @@ def get_assistant_tool_handlers(
         sales_invoice_repository=sales_invoice_repository,
         product_repository=product_repository,
         audit_log_repository=audit_log_repository,
+        auto_code_service=auto_code_service,
     )
 
 
@@ -1144,6 +1147,26 @@ def get_product_batch_repository(
     """Product batch + expiry persistence (§7.8)."""
 
     return ProductBatchRepository(prisma)
+
+
+def get_product_service(
+    product_repository: Annotated[ProductRepository, Depends(get_product_repository)],
+    batch_repository: Annotated[ProductBatchRepository, Depends(get_product_batch_repository)],
+    attachment_repository: Annotated[AttachmentRepository, Depends(get_attachment_repository)],
+    uom_service: Annotated[ProductUomService, Depends(get_product_uom_service)],
+    auto_code_service: Annotated[AutoCodeService, Depends(get_auto_code_service)],
+    audit_service: Annotated[AuditLogService, Depends(get_audit_log_service)],
+    field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
+) -> ProductService:
+    return ProductService(
+        product_repository=product_repository,
+        batch_repository=batch_repository,
+        attachment_repository=attachment_repository,
+        uom_service=uom_service,
+        auto_code_service=auto_code_service,
+        audit_service=audit_service,
+        field_masking=field_masking,
+    )
 
 
 def get_delivery_note_repository(

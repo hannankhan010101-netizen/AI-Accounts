@@ -1,6 +1,6 @@
 /** Command center dashboard types — mirrors GET /dashboard/command-center */
 
-import type { AgingResult, AgingRow } from "@/lib/api/tenant";
+import type { AgingResult, AgingRow, ProductBatch } from "@/lib/api/tenant";
 
 export type CommandCenterPeriod = "mtd" | "qtd" | "ytd" | "fy";
 export type SalesGranularity = "day" | "week" | "month";
@@ -92,6 +92,13 @@ export interface CommandCenterPayload {
     fastMovers: ProductMoverRow[];
     slowMovers: ProductMoverRow[];
     bucketCounts: { inStock: number; lowStock: number; outOfStock: number; oversold: number };
+    expiringBatches?: {
+      windowDays: number;
+      expired: number;
+      expiringSoon: number;
+      totalAlertable: number;
+      preview: ProductBatch[];
+    };
   };
   inventoryStock: { inStock: number; lowStock: number; outOfStock: number; oversold: number };
   profitability: {

@@ -60,3 +60,10 @@ class AttachmentRepository:
         return await self._db.attachment.find_first(
             where={"id": attachment_id, "companyId": company_id},
         )
+
+    async def delete(self, *, company_id: str, attachment_id: str) -> bool:
+        row = await self.get_by_id(company_id=company_id, attachment_id=attachment_id)
+        if row is None:
+            return False
+        await self._db.attachment.delete(where={"id": attachment_id})
+        return True

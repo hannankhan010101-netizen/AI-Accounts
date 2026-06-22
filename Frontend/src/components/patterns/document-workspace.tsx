@@ -178,7 +178,8 @@ function DocumentSummaryPanel({
             </div>
           ))}
         </dl>
-        <div className="divider-soft mt-4 flex justify-between pt-3 text-sm font-semibold">
+        <div className="divider-soft mt-4" aria-hidden />
+        <div className="flex justify-between pt-3 text-sm font-semibold">
           <span>{grandTotalLabel}</span>
           <span className="tabular-nums text-brand-700 dark:text-brand-300">{grandTotal}</span>
         </div>

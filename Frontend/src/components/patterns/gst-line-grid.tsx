@@ -91,7 +91,7 @@ export function GstLineGrid<T extends { lines: GstLineRow[] }>({
       return;
     }
     try {
-      const res = await inventoryWritesApi.listBatches(productCode);
+      const res = await inventoryWritesApi.listBatches({ productCode });
       setBatchesByLine((prev) => ({ ...prev, [lineIndex]: res.result ?? [] }));
     } catch {
       setBatchesByLine((prev) => ({ ...prev, [lineIndex]: [] }));

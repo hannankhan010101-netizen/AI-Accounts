@@ -24,10 +24,6 @@ export const metadata: Metadata = {
     template: `%s · ${BRAND.name}`,
   },
   description: BRAND.tagline,
-  icons: {
-    icon: [{ url: BRAND.logoIcon, type: "image/png", sizes: "64x64" }],
-    apple: [{ url: BRAND.logoIcon, type: "image/png", sizes: "128x128" }],
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

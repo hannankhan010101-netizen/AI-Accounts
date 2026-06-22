@@ -53,6 +53,7 @@ export const commandItems: CommandItem[] = [
   { id: "bp-new", label: "New bank payment", href: "/bank/payments/new", kind: "create" },
 
   { id: "products", label: "Products", href: "/inventory/products", kind: "navigate", keywords: ["stock", "inventory"] },
+  { id: "inventory-add", label: "Add product", href: "/inventory/add", kind: "create", keywords: ["stock", "inventory", "new product"] },
   { id: "stock-adj", label: "Stock adjustment", href: "/inventory/stock-adjustment", kind: "navigate" },
 
   { id: "my-tasks", label: "My tasks", href: "/my-tasks", kind: "navigate", keywords: ["draft", "todo"] },

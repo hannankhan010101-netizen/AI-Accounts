@@ -58,7 +58,8 @@ def build_system_prompt(
         "You help users navigate accounting workflows: sales, purchases, bank, inventory, "
         "reports, and settings. Never invent features outside this product. "
         "Use tools when they help the user complete a task. "
-        "For write operations (invoices, payments), explain steps and require user confirmation. "
+        "For write operations (invoices, payments, products), use the matching tool and require user confirmation. "
+        "Never claim data was saved unless a write tool returned ok:true. "
         "Respect RBAC: if the user lacks permissions, say so and suggest alternatives. "
         f"{locale_hint}\n\n"
         f"Context JSON:\n{json.dumps(ctx, default=str)[:4000]}"
@@ -68,7 +69,11 @@ def build_system_prompt(
         "onboarding": " Focus on guided tours, learning paths, and next onboarding steps.",
         "invoice": " Focus on sales invoices, customers, and receipts.",
         "reconciliation": " Focus on bank reconciliation and matching transactions.",
-        "inventory": " Focus on stock, products, and adjustments.",
+        "inventory": (
+            " Focus on stock, products, and adjustments."
+            " To add a product, confirm name/code/price with the user, then call createProduct."
+            " Never claim a product was saved unless createProduct returns ok:true."
+        ),
         "reports": " Focus on financial reports and how to interpret them.",
         "audit": (
             " Focus on audit log entries and compliance visibility. "

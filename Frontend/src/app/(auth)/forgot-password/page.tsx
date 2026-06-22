@@ -28,8 +28,16 @@ export default function ForgotPasswordPage() {
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
     try {
-      await authApi.forgotPassword(values);
-      router.push(`/reset-password?email=${encodeURIComponent(values.email)}`);
+      const result = await authApi.forgotPassword(values);
+      const email = encodeURIComponent(values.email);
+      if ("expiresAt" in result) {
+        if (result.devOtp) {
+          sessionStorage.setItem("devOtp", result.devOtp);
+        }
+        router.push(`/verify-email?email=${email}`);
+        return;
+      }
+      router.push(`/reset-password?email=${email}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Request failed");
     }

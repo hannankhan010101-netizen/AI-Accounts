@@ -65,6 +65,7 @@ from app.api.dependencies.deps import (
     get_posting_service,
     get_subledger_tieout_service,
     get_product_repository,
+    get_product_service,
     get_purchase_order_repository,
     get_quotation_repository,
     get_report_service,
@@ -147,6 +148,9 @@ from app.models.requests.masters_requests import (
     CreateCustomerRequest,
     CreateProductRequest,
     CreateSupplierRequest,
+    OpeningStockRequest,
+    SetPrimaryImageRequest,
+    UpdateProductRequest,
 )
 from app.models.requests.delivery_requests import (
     DeliveryNoteCreateRequest,
@@ -229,6 +233,7 @@ from app.services.module_entitlement_service import ModuleEntitlementService
 from app.services.module_access_service import ModuleAccessService
 from app.services.custom_field_service import CustomFieldService
 from app.services.product_uom_service import ProductUomService
+from app.services.product_service import ProductService
 from app.constants.permission_catalog import PERMISSION_TREE
 from app.repositories.role_repository import RoleRepository
 from app.repositories.project_repository import ProjectRepository
@@ -1368,6 +1373,7 @@ async def list_product_uoms(
     company_id: str,
     product_id: str,
     service: Annotated[ProductUomService, Depends(get_product_uom_service)],
+    _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
 ) -> dict:
     rows = await service.list_uoms(company_id=company_id, product_id=product_id)
     return {"result": rows}
@@ -2799,10 +2805,52 @@ async def list_products(
     advance_users: Annotated[AdvanceUsersService, Depends(get_advance_users_service)],
     field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
     _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=500, ge=1, le=500, alias="pageSize"),
+    include_archived: bool = Query(default=False, alias="includeArchived"),
 ) -> dict:
-    """Products."""
+    """Products — paginated list."""
 
-    rows = await repo.list_products(company_id=company_id)
+    skip = (page - 1) * page_size
+    rows = await repo.list_products(
+        company_id=company_id,
+        take=page_size,
+        skip=skip,
+        active_only=not include_archived,
+    )
+    total = await repo.count_products(
+        company_id=company_id,
+        active_only=not include_archived,
+    )
+    rows = await advance_users.filter_products(
+        company_id=company_id, user_id=_read.user_id, rows=rows
+    )
+    dumped = _dump_rows(rows)
+    masked = await field_masking.mask_for_user(
+        company_id=company_id, user_id=_read.user_id, rows=dumped, entity="product"
+    )
+    return {"result": masked, "total": total, "page": page, "pageSize": page_size}
+
+
+@router.get("/products/search")
+async def search_products(
+    company_id: str,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    advance_users: Annotated[AdvanceUsersService, Depends(get_advance_users_service)],
+    field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
+    _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
+    q: str = Query(default="", min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    active_only: bool = Query(default=True, alias="activeOnly"),
+) -> dict:
+    """Quick product search by code, name, or category."""
+
+    rows = await service.search_products(
+        company_id=company_id,
+        query=q,
+        limit=limit,
+        active_only=active_only,
+    )
     rows = await advance_users.filter_products(
         company_id=company_id, user_id=_read.user_id, rows=rows
     )
@@ -2812,30 +2860,217 @@ async def list_products(
     )
     return {"result": masked}
 
+
+@router.get("/products/{product_id}")
+async def get_product(
+    company_id: str,
+    product_id: str,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    advance_users: Annotated[AdvanceUsersService, Depends(get_advance_users_service)],
+    field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
+    uom_service: Annotated[ProductUomService, Depends(get_product_uom_service)],
+    _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
+) -> dict:
+    """Single product with UOM summary."""
+
+    from app.core.exceptions import NotFoundError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.get_product(company_id=company_id, product_id=product_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    scoped = await advance_users.filter_products(
+        company_id=company_id, user_id=_read.user_id, rows=[row]
+    )
+    if not scoped:
+        raise HTTPException(status_code=404, detail="Product not found")
+    dumped = _dump_rows([row])[0]
+    masked = await field_masking.mask_for_user(
+        company_id=company_id,
+        user_id=_read.user_id,
+        rows=[dumped],
+        entity="product",
+    )[0]
+    uoms = await uom_service.list_uoms(company_id=company_id, product_id=product_id)
+    return {"result": {**masked, "uoms": uoms}}
+
+
 @router.post("/products", status_code=201)
 async def create_product(
     company_id: str,
     body: CreateProductRequest,
-    repo: Annotated[ProductRepository, Depends(get_product_repository)],
-    auto_code_service: Annotated[AutoCodeService, Depends(get_auto_code_service)],
-    _access: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+    service: Annotated[ProductService, Depends(get_product_service)],
+    field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
 ) -> dict:
-    """Create a product (§7.1 minimal — full master extends in Phase 6.1)."""
+    """Create a product (§7.1 product master)."""
 
+    from app.core.exceptions import ValidationAppError
     from fastapi import HTTPException
 
+    opening = None
+    if body.opening_stock is not None:
+        opening = {
+            "quantity": body.opening_stock.quantity,
+            "rate": body.opening_stock.rate,
+        }
     try:
-        code = await auto_code_service.resolve_code(
-            company_id=company_id, entity_key="product", provided=body.code
+        row = await service.create_product(
+            company_id=company_id,
+            user_id=claims.user_id,
+            code=body.code,
+            name=body.name,
+            is_stock=body.is_stock,
+            unit=body.unit,
+            category=body.category,
+            cost=body.cost,
+            sale_price=body.sale_price,
+            low_stock_level=body.low_stock_level,
+            bin_location=body.bin_location,
+            opening_stock=opening,
         )
     except ValidationAppError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    row = await repo.create_product(
+    dumped = _dump_rows([row])[0]
+    masked = await field_masking.mask_for_user(
         company_id=company_id,
-        code=code,
-        name=body.name,
-        is_stock=body.is_stock,
-    )
+        user_id=claims.user_id,
+        rows=[dumped],
+        entity="product",
+    )[0]
+    return {"result": masked}
+
+
+@router.put("/products/{product_id}")
+async def update_product(
+    company_id: str,
+    product_id: str,
+    body: UpdateProductRequest,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    field_masking: Annotated[FieldMaskingService, Depends(get_field_masking_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    """Update product master fields."""
+
+    from app.core.exceptions import NotFoundError, ValidationAppError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.update_product(
+            company_id=company_id,
+            user_id=claims.user_id,
+            product_id=product_id,
+            name=body.name,
+            is_stock=body.is_stock,
+            unit=body.unit,
+            category=body.category,
+            cost=body.cost,
+            sale_price=body.sale_price,
+            low_stock_level=body.low_stock_level,
+            bin_location=body.bin_location,
+            custom_fields=body.custom_fields,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationAppError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    dumped = _dump_rows([row])[0]
+    masked = await field_masking.mask_for_user(
+        company_id=company_id,
+        user_id=claims.user_id,
+        rows=[dumped],
+        entity="product",
+    )[0]
+    return {"result": masked}
+
+
+@router.post("/products/{product_id}/archive")
+async def archive_product(
+    company_id: str,
+    product_id: str,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    from app.core.exceptions import NotFoundError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.archive_product(
+            company_id=company_id, user_id=claims.user_id, product_id=product_id
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"result": jsonable_encoder(row)}
+
+
+@router.post("/products/{product_id}/restore")
+async def restore_product(
+    company_id: str,
+    product_id: str,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    from app.core.exceptions import NotFoundError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.restore_product(
+            company_id=company_id, user_id=claims.user_id, product_id=product_id
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"result": jsonable_encoder(row)}
+
+
+@router.patch("/products/{product_id}/primary-image")
+async def set_product_primary_image(
+    company_id: str,
+    product_id: str,
+    body: SetPrimaryImageRequest,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    from app.core.exceptions import NotFoundError, ValidationAppError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.set_primary_image(
+            company_id=company_id,
+            user_id=claims.user_id,
+            product_id=product_id,
+            attachment_id=body.attachment_id,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationAppError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"result": jsonable_encoder(row)}
+
+
+@router.post("/products/{product_id}/opening-stock")
+async def apply_product_opening_stock(
+    company_id: str,
+    product_id: str,
+    body: OpeningStockRequest,
+    service: Annotated[ProductService, Depends(get_product_service)],
+    claims: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    from app.core.exceptions import NotFoundError, ValidationAppError
+    from fastapi import HTTPException
+
+    try:
+        row = await service.apply_opening_stock(
+            company_id=company_id,
+            user_id=claims.user_id,
+            product_id=product_id,
+            quantity=body.quantity,
+            rate=body.rate,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationAppError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"result": jsonable_encoder(row)}
 
 
@@ -4687,18 +4922,32 @@ async def create_attachment(
 async def upload_attachment(
     company_id: str,
     service: Annotated[AttachmentService, Depends(get_attachment_service)],
-    _access: Annotated[JwtClaims, Depends(require_module_access("financial"))],
+    claims: Annotated[JwtClaims, Depends(resolve_tenant)],
+    module_access: Annotated[ModuleAccessService, Depends(get_module_access_service)],
     entity_type: str = Form(..., alias="entityType"),
     entity_id: str = Form(..., alias="entityId"),
     file: UploadFile = File(...),
 ) -> dict:
     """Upload a file and register attachment metadata."""
 
+    from fastapi import HTTPException
+
+    module_code = "inventory" if entity_type == "product" else "financial"
+    await module_access.assert_access(
+        company_id=company_id,
+        user_id=claims.user_id,
+        module_code=module_code,
+    )
+
     data = await file.read()
     if not data:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail="Empty file")
+    if entity_type == "product":
+        mime = (file.content_type or "").lower()
+        if mime and not mime.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Product attachments must be images")
+        if len(data) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller")
     row = await service.upload_file(
         company_id=company_id,
         entity_type=entity_type,
@@ -4708,6 +4957,26 @@ async def upload_attachment(
         mime_type=file.content_type,
     )
     return {"result": jsonable_encoder(row)}
+
+
+@router.delete("/attachments/{attachment_id}", status_code=204)
+async def delete_attachment(
+    company_id: str,
+    attachment_id: str,
+    service: Annotated[AttachmentService, Depends(get_attachment_service)],
+    claims: Annotated[JwtClaims, Depends(resolve_tenant)],
+    module_access: Annotated[ModuleAccessService, Depends(get_module_access_service)],
+    entity_type: str | None = Query(default=None, alias="entityType"),
+) -> None:
+    """Delete attachment metadata and stored file."""
+
+    module_code = "inventory" if entity_type == "product" else "financial"
+    await module_access.assert_access(
+        company_id=company_id,
+        user_id=claims.user_id,
+        module_code=module_code,
+    )
+    await service.delete_attachment(company_id=company_id, attachment_id=attachment_id)
 
 
 @router.get("/attachments/{attachment_id}/download")
@@ -8383,12 +8652,108 @@ async def create_stock_transfer(
 async def list_product_batches(
     company_id: str,
     repo: Annotated[ProductBatchRepository, Depends(get_product_batch_repository)],
+    smart_runtime: Annotated[SmartSettingsRuntime, Depends(get_smart_settings_runtime)],
+    _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
     product_code: str | None = Query(default=None, alias="productCode"),
+    expiring_within_days: int | None = Query(default=None, alias="expiringWithinDays"),
+    filter_name: str | None = Query(default=None, alias="filter"),
 ) -> dict:
-    """Product batches with optional product filter (§7.8)."""
+    """Product batches with optional product filter and expiry alert metadata (§7.8)."""
 
-    rows = await repo.list_batches(company_id=company_id, product_code=product_code)
-    return {"result": _dump_rows(rows)}
+    from app.services.batch_expiry_alert_service import BatchExpiryAlertService
+
+    alert_config = await smart_runtime.inventory_alerts_config(company_id=company_id)
+    window_days = (
+        expiring_within_days
+        if expiring_within_days is not None
+        else int(alert_config["windowDays"])
+    )
+
+    if filter_name in ("expired", "expiring") or expiring_within_days is not None:
+        rows = await repo.list_expiring_batches(
+            company_id=company_id,
+            within_days=window_days,
+            include_expired=True,
+        )
+        if product_code:
+            rows = [r for r in rows if r.productCode == product_code]
+    else:
+        rows = await repo.list_batches(company_id=company_id, product_code=product_code)
+
+    svc = BatchExpiryAlertService(window_days=window_days)
+    enriched = svc.filter_rows(
+        rows,
+        filter_name=filter_name if filter_name in ("expired", "expiring") else None,
+    )
+    return {"result": jsonable_encoder(enriched)}
+
+
+@router.get("/notifications")
+async def list_notifications(
+    company_id: str,
+    batch_repo: Annotated[ProductBatchRepository, Depends(get_product_batch_repository)],
+    smart_runtime: Annotated[SmartSettingsRuntime, Depends(get_smart_settings_runtime)],
+    _read: Annotated[JwtClaims, Depends(require_module_list_read("inventory"))],
+) -> dict:
+    """Ephemeral in-app notifications (batch expiry alerts)."""
+
+    from app.services.expiry_notification_service import list_expiry_notifications
+
+    items = await list_expiry_notifications(
+        company_id=company_id,
+        batch_repo=batch_repo,
+        smart_runtime=smart_runtime,
+    )
+    return {
+        "result": {
+            "items": items,
+            "unreadCount": len(items),
+        }
+    }
+
+
+@router.post("/inventory/expiry-alerts/run-due")
+async def run_expiry_alert_digest(
+    company_id: str,
+    claims: Annotated[JwtClaims, Depends(resolve_tenant)],
+    batch_repo: Annotated[ProductBatchRepository, Depends(get_product_batch_repository)],
+    smart_runtime: Annotated[SmartSettingsRuntime, Depends(get_smart_settings_runtime)],
+    smart_repo: Annotated[SmartSettingsRepository, Depends(get_smart_settings_repository)],
+    email_service: Annotated[EmailService, Depends(get_email_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    company_repo: Annotated[CompanyRepository, Depends(get_company_repository)],
+    _access: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
+) -> dict:
+    """Send batch expiry digest email to the current user when enabled."""
+
+    from fastapi import HTTPException
+
+    from app.core.config import get_settings
+    from app.services.expiry_notification_service import send_expiry_digest_if_due
+
+    user = await user_repo.find_by_id(user_id=claims.user_id)
+    if user is None or not user.email:
+        raise HTTPException(status_code=400, detail="User email not found")
+
+    settings = get_settings()
+    app_base = (settings.cors_origins.split(",")[0] or "http://localhost:3000").strip()
+    company_name = await company_repo.get_company_name(company_id=company_id)
+    name = f"{user.firstName or ''} {user.lastName or ''}".strip() or user.email
+
+    ok, message = await send_expiry_digest_if_due(
+        company_id=company_id,
+        company_name=company_name,
+        to_email=user.email,
+        user_name=name,
+        batch_repo=batch_repo,
+        smart_runtime=smart_runtime,
+        smart_repo=smart_repo,
+        email_service=email_service,
+        app_base_url=app_base,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    return {"result": {"sent": True, "message": message}}
 
 
 @router.post("/product-batches", status_code=201)
@@ -8396,6 +8761,7 @@ async def create_product_batch(
     company_id: str,
     body: ProductBatchCreateRequest,
     repo: Annotated[ProductBatchRepository, Depends(get_product_batch_repository)],
+    _access: Annotated[JwtClaims, Depends(require_module_access("inventory"))],
 ) -> dict:
     row = await repo.create_batch(
         company_id=company_id,

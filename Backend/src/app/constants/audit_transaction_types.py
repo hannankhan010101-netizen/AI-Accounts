@@ -63,6 +63,11 @@ AUDIT_TRANSACTION_TYPE_CATALOG: tuple[AuditTransactionTypeDef, ...] = (
             ("MANUAL_JOURNAL", "Manual journal"),
             ("ASSEMBLY_JOB", "Assembly job"),
             ("FX_REVALUATION", "FX revaluation"),
+            ("PRODUCT_CREATED", "Product created"),
+            ("PRODUCT_UPDATED", "Product updated"),
+            ("PRODUCT_ARCHIVED", "Product archived"),
+            ("PRODUCT_RESTORED", "Product restored"),
+            ("PRODUCT_IMAGE_SET", "Product image set"),
         ),
     ),
     *_rows(

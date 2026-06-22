@@ -486,6 +486,106 @@ body {
     background: var(--gradient-surface-mesh);
   }
 
+  .auth-panel-gradient {
+    background:
+      radial-gradient(ellipse 70% 55% at 15% 15%, color-mix(in srgb, var(--brand-400) 28%, transparent), transparent),
+      radial-gradient(ellipse 55% 45% at 85% 75%, color-mix(in srgb, var(--accent-sage) 22%, transparent), transparent),
+      linear-gradient(155deg, var(--brand-800) 0%, var(--brand-900) 48%, #1e261a 100%);
+  }
+
+  .auth-panel-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(color-mix(in srgb, white 4%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, white 4%, transparent) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 20%, transparent 75%);
+    pointer-events: none;
+  }
+
+  .auth-panel-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(64px);
+    pointer-events: none;
+    opacity: 0.45;
+  }
+
+  .auth-panel-orb--one {
+    top: 8%;
+    right: 10%;
+    width: min(280px, 40vw);
+    height: min(280px, 40vw);
+    background: color-mix(in srgb, var(--brand-400) 55%, transparent);
+    animation: auth-orb-drift 18s ease-in-out infinite;
+  }
+
+  .auth-panel-orb--two {
+    bottom: 12%;
+    left: 6%;
+    width: min(220px, 34vw);
+    height: min(220px, 34vw);
+    background: color-mix(in srgb, var(--accent-sage) 50%, transparent);
+    animation: auth-orb-drift 22s ease-in-out infinite reverse;
+  }
+
+  .auth-feature-card {
+    border: 1px solid color-mix(in srgb, white 12%, transparent);
+    background: color-mix(in srgb, white 6%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  .auth-form-glow {
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--brand-600) 18%, transparent) 50%,
+      transparent
+    );
+  }
+
+  @keyframes auth-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .auth-enter {
+    animation: auth-fade-up var(--motion-enter) var(--ease-out) both;
+  }
+
+  .auth-enter-delayed {
+    animation-delay: 80ms;
+  }
+
+  @keyframes auth-orb-drift {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    50% {
+      transform: translate(-12px, 16px) scale(1.06);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-panel-orb--one,
+    .auth-panel-orb--two {
+      animation: none;
+    }
+
+    .auth-enter,
+    .auth-enter-delayed {
+      animation: none;
+    }
+  }
+
   .onboarding-card {
     box-shadow: var(--onboarding-card-shadow);
     border: 1px solid color-mix(in srgb, var(--border-default) 80%, transparent);

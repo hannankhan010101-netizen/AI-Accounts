@@ -241,13 +241,17 @@ class AssistantOrchestrator:
                 user_id=user_id,
                 pathname=pathname,
             )
+            invalidate_keys = result.get("invalidate") if isinstance(result.get("invalidate"), list) else None
+            llm_result = {k: v for k, v in result.items() if k != "invalidate"}
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": tc_id,
-                    "content": json.dumps(result, default=str)[:8000],
+                    "content": json.dumps(llm_result, default=str)[:8000],
                 }
             )
+            if invalidate_keys:
+                yield {"type": "invalidate", "keys": invalidate_keys}
 
         async for event in self._continue_after_tools(
             messages=messages,

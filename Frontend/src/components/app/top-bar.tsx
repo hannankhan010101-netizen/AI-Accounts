@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   ChevronDown,
   Clock,
+  Bell,
   LifeBuoy,
   ListTodo,
   Menu,
@@ -30,6 +31,7 @@ import {
 import { useTheme } from "@/components/providers/theme-provider";
 import { clearTokens } from "@/lib/auth/storage";
 import { useCompany } from "@/lib/auth/company-context";
+import { countUnreadNotifications, markNotificationsSeen } from "@/lib/notifications/seen";
 import { useShell } from "@/lib/layout/shell-context";
 import {
   registerTourShellActions,
@@ -37,7 +39,7 @@ import {
 } from "@/lib/tour/shell-actions";
 import { SettingsMenu } from "./settings-menu";
 import { UserMenu } from "./user-menu";
-import { tasksApi } from "@/lib/api/tenant";
+import { notificationsApi, tasksApi } from "@/lib/api/tenant";
 
 export function TopBar() {
   const router = useRouter();
@@ -110,6 +112,17 @@ export function TopBar() {
   const tasksQuery = useTenantReferenceQuery(["my-tasks", "count", companyId], () => tasksApi.list(), { enabled: Boolean(companyId) });
   const taskCount = tasksQuery.data?.result.length ?? 0;
 
+  const notificationsQuery = useTenantReferenceQuery(
+    ["notifications", "count", companyId],
+    () => notificationsApi.list(),
+    { enabled: Boolean(companyId) },
+  );
+  const notificationItems = notificationsQuery.data?.result.items ?? [];
+  const notificationCount =
+    companyId && pathname !== "/notifications"
+      ? countUnreadNotifications(companyId, notificationItems)
+      : 0;
+
   async function switchTo(id: string) {
     if (!id || id === companyId) {
       setCompanyMenuOpen(false);
@@ -149,8 +162,8 @@ export function TopBar() {
             className="flex shrink-0 items-center justify-center rounded-md p-1 hover:opacity-90 focus-ring md:hidden"
             aria-label="Dashboard home"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600/10 ring-1 ring-brand-600/20 dark:bg-brand-100/12 dark:ring-brand-400/25">
-              <BrandMark size={20} className="h-5 w-5" />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center">
+              <BrandMark size={32} />
             </span>
           </Link>
           <div className="relative" ref={companyMenuRef}>
@@ -237,6 +250,17 @@ export function TopBar() {
             )}
           </Button>
           <div className="relative max-sm:hidden sm:contents">
+            <Button variant="ghost" size="sm" className="relative" asChild>
+              <Link href="/notifications" data-tour="notifications" title="Notifications">
+                <Bell className="mr-1.5 h-4 w-4" />
+                <span className="hidden sm:inline">Alerts</span>
+                {notificationCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-warning px-1 text-[10px] font-semibold text-fg">
+                    {notificationCount > 99 ? "99+" : notificationCount}
+                  </span>
+                )}
+              </Link>
+            </Button>
             <Button variant="ghost" size="sm" className="relative" asChild>
               <Link href="/my-tasks" data-tour="my-tasks">
                 <ListTodo className="mr-1.5 h-4 w-4" />

@@ -119,6 +119,7 @@ python _reconcile.py
 | 3.5 | Two-copy print SR/VP | ✅ `?copies=2` + template `twoCopies` |
 | 3.6–3.7 | Customer/supplier advance return | ⚠️ Routes exist — verify FA parity |
 | 3.8 | Batch/expiry on goods issue lines | ✅ Schema + posting tests |
+| 3.9 | Batch expiry in-app alerts (dashboard + batches grid) | ✅ Command center insights + notifications |
 
 ### E. Phase 4 — Reports (partial)
 
@@ -143,6 +144,7 @@ python _reconcile.py
 - FIFO allocation + explicit allocation UI on receipts/payments.
 - Quotations, SO, PO, credits, GRN, delivery notes, goods issue, assembly templates/jobs (batch/expiry on finish).
 - Product multi-UOM UI at `/inventory/products/[id]`.
+- **Product master (FA §7.1):** `/inventory/add` — full create flow (pricing, opening stock, image); `GET/PUT /products/{id}`, archive/restore, search, primary image; edit at `/inventory/products/[id]/edit`; tabbed detail (Overview / Units / Attachments); list thumbnails + server pagination; custom fields on edit; RBAC `inventory.products.create/read`; audit `PRODUCT_*`.
 - Customer balances report (047) and supplier balances (067) at `/reports/extended/*`.
 - Bank receipts/transfers/activity + assembly templates/WIP/component extended reports.
 - Smart Settings: all 20 accordions persist; runtime enforces credit limit (SI + SO), round-off, template/draft, product description defaults, auto codes, last rate API, **set customer as supplier** on create.

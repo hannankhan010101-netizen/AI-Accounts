@@ -1,7 +1,11 @@
-"""Local filesystem blob store for attachments (dev/single-node)."""
+"""Local filesystem blob store for attachments (dev/single-node).
+
+When ``ATTACHMENT_S3_BUCKET`` is set, uploads use S3-compatible storage instead.
+"""
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from pathlib import Path
@@ -9,6 +13,10 @@ from pathlib import Path
 from app.core.config import get_settings
 
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _s3_enabled() -> bool:
+    return bool(get_settings().attachment_s3_bucket.strip())
 
 
 def uploads_root() -> Path:
@@ -24,8 +32,37 @@ def company_upload_dir(company_id: str) -> Path:
     return path
 
 
+def _save_upload_s3(*, company_id: str, file_name: str, data: bytes) -> tuple[str, str]:
+    """S3-compatible upload (requires boto3 and env bucket config)."""
+
+    try:
+        import boto3
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("boto3 required for S3 attachment storage") from exc
+
+    settings = get_settings()
+    safe = _SAFE_NAME.sub("_", file_name.strip()) or "file"
+    storage_key = f"{company_id}/{uuid.uuid4().hex}_{safe}"
+    client_kwargs: dict[str, object] = {"region_name": settings.attachment_s3_region}
+    if settings.attachment_s3_endpoint:
+        client_kwargs["endpoint_url"] = settings.attachment_s3_endpoint
+    if settings.attachment_s3_access_key:
+        client_kwargs["aws_access_key_id"] = settings.attachment_s3_access_key
+        client_kwargs["aws_secret_access_key"] = settings.attachment_s3_secret_key
+    client = boto3.client("s3", **client_kwargs)
+    client.put_object(
+        Bucket=settings.attachment_s3_bucket,
+        Key=storage_key,
+        Body=data,
+    )
+    return storage_key, f"s3://{settings.attachment_s3_bucket}/{storage_key}"
+
+
 def save_upload(*, company_id: str, file_name: str, data: bytes) -> tuple[str, str]:
-    """Return ``(storage_key, absolute_path)``."""
+    """Return ``(storage_key, absolute_path_or_uri)``."""
+
+    if _s3_enabled():
+        return _save_upload_s3(company_id=company_id, file_name=file_name, data=data)
 
     safe = _SAFE_NAME.sub("_", file_name.strip()) or "file"
     storage_key = f"{company_id}/{uuid.uuid4().hex}_{safe}"
@@ -36,4 +73,13 @@ def save_upload(*, company_id: str, file_name: str, data: bytes) -> tuple[str, s
 
 
 def resolve_path(storage_key: str) -> Path:
+    if storage_key.startswith("s3://") or _s3_enabled():
+        # Local dev fallback: blobs may still exist on disk from pre-S3 uploads.
+        local = uploads_root() / storage_key
+        if local.is_file():
+            return local
+        raise FileNotFoundError(
+            f"S3-backed attachment {storage_key!r}; download via signed URL in production"
+        )
     return uploads_root() / storage_key
+

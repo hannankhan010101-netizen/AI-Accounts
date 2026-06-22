@@ -11,6 +11,12 @@ import { Button } from "@/components/ui/button";
 
 export interface SmartSettingsPayload {
   others?: Record<string, boolean | string>;
+  inventoryAlerts?: {
+    enabled?: boolean;
+    windowDays?: number;
+    emailDigestEnabled?: boolean;
+    lastDigestSentAt?: string | null;
+  };
   currency?: {
     baseCurrency?: string;
     timeZone?: string;

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from app.constants.inventory_alerts import EXPIRY_ALERT_WINDOW_DAYS
 from prisma_generated import Prisma
 from prisma_generated.models import (
     ProductBatch,
@@ -171,6 +172,32 @@ class ProductBatchRepository:
         where: dict = {"companyId": company_id}
         if product_code:
             where["productCode"] = product_code
+        return await self._db.productbatch.find_many(
+            where=where,
+            order={"expiryDate": "asc"},
+            take=take,
+        )
+
+    async def list_expiring_batches(
+        self,
+        *,
+        company_id: str,
+        within_days: int = EXPIRY_ALERT_WINDOW_DAYS,
+        include_expired: bool = True,
+        take: int = 500,
+        now: datetime | None = None,
+    ) -> list[ProductBatch]:
+        """Batches with on-hand qty and expiry within alert window (or already expired)."""
+
+        ref = now or datetime.now(UTC)
+        end = ref + timedelta(days=within_days)
+        where: dict = {
+            "companyId": company_id,
+            "expiryDate": {"not": None, "lte": end},
+            "quantityOnHand": {"gt": Decimal(0)},
+        }
+        if not include_expired:
+            where["expiryDate"] = {"not": None, "gt": ref, "lte": end}
         return await self._db.productbatch.find_many(
             where=where,
             order={"expiryDate": "asc"},

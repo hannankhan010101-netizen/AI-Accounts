@@ -8,7 +8,6 @@ import { BRAND } from "@/lib/brand";
 
 export const metadata = {
   title: `${BRAND.name} — Print`,
-  icons: { icon: BRAND.logoIcon },
 };
 
 export default function PrintLayout({ children }: { children: React.ReactNode }) {

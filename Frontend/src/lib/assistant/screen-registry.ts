@@ -68,6 +68,18 @@ const REGISTRY: { prefix: string; ctx: Omit<ScreenContext, "tourIds"> }[] = [
     },
   },
   {
+    prefix: "/inventory/add",
+    ctx: {
+      module: "inventory",
+      title: "Add product",
+      description: "Create a product with pricing, opening stock, and optional image.",
+      quickActions: [
+        { label: "Required fields", prompt: "What fields are required when adding a product?" },
+        { label: "Opening stock", prompt: "How do I set opening stock on a new product?" },
+      ],
+    },
+  },
+  {
     prefix: "/inventory",
     ctx: {
       module: "inventory",

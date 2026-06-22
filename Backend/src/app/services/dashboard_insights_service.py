@@ -79,6 +79,37 @@ def build_insights(payload: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    expiring = inv.get("expiringBatches") or {}
+    expired_count = int(expiring.get("expired") or 0)
+    expiring_soon_count = int(expiring.get("expiringSoon") or 0)
+    if expired_count > 0:
+        insights.append(
+            {
+                "id": "expired-batches",
+                "severity": "critical",
+                "title": "Expired batches on hand",
+                "message": (
+                    f"{expired_count} batch(es) have passed expiry with stock still on hand."
+                ),
+                "actionHref": "/inventory/batches?filter=expired",
+                "actionLabel": "Review expired batches",
+            }
+        )
+    if expiring_soon_count > 0:
+        insights.append(
+            {
+                "id": "expiring-batches",
+                "severity": "warn",
+                "title": "Batches expiring soon",
+                "message": (
+                    f"{expiring_soon_count} batch(es) expire within "
+                    f"{int(expiring.get('windowDays') or 30)} days."
+                ),
+                "actionHref": "/inventory/batches?filter=expiring",
+                "actionLabel": "Review batches",
+            }
+        )
+
     net_kpi = kpis.get("kpi-net-profit") or {}
     if _dec(net_kpi.get("value")) < 0:
         insights.append(

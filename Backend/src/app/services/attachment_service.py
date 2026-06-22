@@ -83,3 +83,14 @@ class AttachmentService:
         if not path.is_file():
             return row, None
         return row, path
+
+    async def delete_attachment(self, *, company_id: str, attachment_id: str) -> None:
+        from app.core.exceptions import NotFoundError
+
+        row = await self._repo.get_by_id(company_id=company_id, attachment_id=attachment_id)
+        if row is None:
+            raise NotFoundError("Attachment not found")
+        path = resolve_path(row.storageKey)
+        if path.is_file():
+            path.unlink(missing_ok=True)
+        await self._repo.delete(company_id=company_id, attachment_id=attachment_id)

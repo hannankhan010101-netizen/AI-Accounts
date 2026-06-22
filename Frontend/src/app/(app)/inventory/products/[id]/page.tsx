@@ -1,57 +1,65 @@
-/** Product multi-UOM tiers — FA §7.1 */
+/** Product detail — overview, units, attachments */
 "use client";
-import { useTenantListQuery, invalidateTenantQueries } from "@/lib/api/tenant-query";
 
-
-import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 
+import { AttachmentPanel } from "@/components/patterns/attachment-panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { EnterpriseGrid, type GridColumn } from "@/components/ui/enterprise-grid";
-import { FormField } from "@/components/ui/form-field";
-import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
-import { inventoryApi, type Product, type ProductUomRow } from "@/lib/api/tenant";
+import { WorkspaceLoading } from "@/components/ui/workspace-loading";
+import { useTenantListQuery, invalidateTenantQueries } from "@/lib/api/tenant-query";
+import { attachmentsApi, inventoryApi, type ProductUomRow } from "@/lib/api/tenant";
 import { responsiveListColumns } from "@/lib/grid/responsive-columns";
+import { useQueryClient } from "@tanstack/react-query";
 
-export default function ProductUomPage() {
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "units", label: "Units" },
+  { id: "attachments", label: "Attachments" },
+] as const;
+
+export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
   const productId = params.id;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = (searchParams.get("tab") as (typeof TABS)[number]["id"]) || "overview";
   const qc = useQueryClient();
-  const [unitCode, setUnitCode] = useState("");
-  const [conversionFactor, setConversionFactor] = useState("1");
-  const [salePrice, setSalePrice] = useState("");
-  const [isDefault, setIsDefault] = useState(false);
 
-  const { data: products } = useTenantListQuery(["products"], () => inventoryApi.listProducts());
-  const product = (products?.result ?? []).find((p) => p.id === productId) as Product | undefined;
+  const { data, isLoading, error } = useTenantListQuery(
+    ["product", productId],
+    () => inventoryApi.getProduct(productId),
+    { enabled: Boolean(productId) },
+  );
+  const product = data?.result;
 
-  const { data, isLoading, error } = useTenantListQuery(["product-uoms", productId], () => inventoryApi.listProductUoms(productId),
-    { enabled: Boolean(productId) });
-
-  const save = useMutation({
+  const archiveMutation = useMutation({
     mutationFn: () =>
-      inventoryApi.upsertProductUom(productId, {
-        unitCode: unitCode.trim(),
-        conversionFactor,
-        salePrice: salePrice || String(product?.salePrice ?? "0"),
-        isDefault,
-      }),
+      product?.isArchived
+        ? inventoryApi.restoreProduct(productId)
+        : inventoryApi.archiveProduct(productId),
     onSuccess: () => {
-      setUnitCode("");
-      setConversionFactor("1");
-      setSalePrice("");
-      setIsDefault(false);
-      void invalidateTenantQueries(qc, "product-uoms", productId);
-      void invalidateTenantQueries(qc, "products");
+      invalidateTenantQueries(qc, "product", productId);
+      invalidateTenantQueries(qc, "products");
     },
   });
 
-  const columns = responsiveListColumns<ProductUomRow>([
-    { key: "unitCode", header: "Unit", sortable: true, sortAccessor: (r) => r.unitCode },
+  if (isLoading) return <WorkspaceLoading />;
+  if (error || !product) {
+    return <p className="text-sm text-status-danger">Could not load product.</p>;
+  }
+
+  const imageUrl = product.primaryImageAttachmentId
+    ? attachmentsApi.productImageUrl(product.primaryImageAttachmentId)
+    : null;
+
+  const uomColumns = responsiveListColumns<ProductUomRow>([
+    { key: "unitCode", header: "Unit" },
     { key: "conversionFactor", header: "Conversion", align: "right" },
     { key: "salePrice", header: "Sale price", align: "right" },
     {
@@ -59,65 +67,105 @@ export default function ProductUomPage() {
       header: "Default",
       render: (r) => (r.isDefault ? "Yes" : "—"),
     },
-  ] satisfies GridColumn<ProductUomRow>[]);
-
-  const title = product ? `${product.code ?? ""} — ${product.name}` : "Product UOM";
+  ]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={title}
-        breadcrumb="Stock / Products / Units"
-        description="Alternate units and conversion factors for this product."
+        title={`${product.code ?? ""} — ${product.name}`}
+        breadcrumb="Stock / Products / Detail"
         actions={
-          <Link href="/inventory/products">
-            <Button variant="outline">← Products</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/inventory/products">← Products</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href={`/inventory/products/${productId}/edit`}>Edit</Link>
+            </Button>
+            <Button
+              variant="outline"
+              disabled={archiveMutation.isPending}
+              onClick={() => archiveMutation.mutate()}
+            >
+              {product.isArchived ? "Restore" : "Archive"}
+            </Button>
+          </div>
         }
       />
 
-      <div className="max-w-md space-y-3 rounded-lg border border-border bg-surface p-4">
-        <FormField label="Unit code">
-          <Input value={unitCode} onChange={(e) => setUnitCode(e.target.value)} placeholder="BOX" />
-        </FormField>
-        <FormField label="Conversion factor (to base unit)">
-          <Input
-            value={conversionFactor}
-            onChange={(e) => setConversionFactor(e.target.value)}
-          />
-        </FormField>
-        <FormField label="Sale price">
-          <Input
-            value={salePrice}
-            onChange={(e) => setSalePrice(e.target.value)}
-            placeholder={String(product?.salePrice ?? "0")}
-          />
-        </FormField>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-          Default selling unit
-        </label>
-        <Button
-          onClick={() => save.mutate()}
-          disabled={save.isPending || !unitCode.trim()}
-        >
-          Save unit
-        </Button>
-        {save.isError ? (
-          <p className="text-sm text-status-danger">
-            {save.error instanceof Error ? save.error.message : "Save failed"}
-          </p>
-        ) : null}
-      </div>
+      <nav className="flex flex-wrap gap-2 border-b border-border pb-2">
+        {TABS.map((t) => (
+          <Button
+            key={t.id}
+            size="sm"
+            variant={tab === t.id ? "default" : "ghost"}
+            onClick={() => router.push(`/inventory/products/${productId}?tab=${t.id}`)}
+          >
+            {t.label}
+          </Button>
+        ))}
+      </nav>
 
-      <EnterpriseGrid<ProductUomRow>
-        columns={columns}
-        rows={data?.result ?? []}
-        loading={isLoading}
-        error={error}
-        emptyMessage="No alternate units — base unit only."
-        getRowId={(r) => r.id ?? r.unitCode}
-      />
+      {tab === "overview" ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]">
+          {imageUrl ? (
+            <div className="relative h-48 w-48 overflow-hidden rounded-lg border border-border">
+              <Image src={imageUrl} alt={product.name} fill className="object-cover" unoptimized />
+            </div>
+          ) : null}
+          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-fg-muted">Status</dt>
+              <dd>
+                <Badge variant={product.isArchived ? "default" : "success"}>
+                  {product.isArchived ? "Archived" : "Active"}
+                </Badge>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Type</dt>
+              <dd>{product.isStock === false ? "Service / non-stock" : "Stock product"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Category</dt>
+              <dd>{product.category || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Unit</dt>
+              <dd>{product.unit || "EA"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Sale price</dt>
+              <dd className="tabular-nums">{product.salePrice ?? "0"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Cost</dt>
+              <dd className="tabular-nums">{product.cost ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Low stock level</dt>
+              <dd className="tabular-nums">{product.lowStockLevel ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-fg-muted">Bin location</dt>
+              <dd>{product.binLocation || "—"}</dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
+
+      {tab === "units" ? (
+        <EnterpriseGrid<ProductUomRow>
+          columns={uomColumns as GridColumn<ProductUomRow>[]}
+          rows={product.uoms ?? []}
+          emptyMessage="No alternate units — base unit only."
+          getRowId={(r) => r.id ?? r.unitCode}
+        />
+      ) : null}
+
+      {tab === "attachments" ? (
+        <AttachmentPanel entityType="product" entityId={productId} title="Files & images" />
+      ) : null}
     </div>
   );
 }

@@ -21,6 +21,7 @@ SERVER_TOOLS = frozenset(
         "createInvoice",
         "fetchReports",
         "searchInventory",
+        "createProduct",
         "explainAuditEntry",
     }
 )
@@ -59,6 +60,7 @@ MODE_TOOL_NAMES: dict[str, frozenset[str]] = {
             "explainScreen",
             "helpUser",
             "searchInventory",
+            "createProduct",
         }
     ),
     "reconciliation": frozenset(
@@ -86,6 +88,7 @@ MODE_TOOL_NAMES: dict[str, frozenset[str]] = {
             "createInvoice",
             "fetchReports",
             "searchInventory",
+            "createProduct",
             "explainAuditEntry",
         }
     ),
@@ -179,6 +182,28 @@ def _all_tool_defs() -> dict[str, dict[str, Any]]:
                 "limit": {"type": "integer", "description": "Max rows", "default": 10},
             },
             [],
+        ),
+        "createProduct": _fn(
+            "createProduct",
+            (
+                "Create a product in inventory after the user confirms details. "
+                "Requires inventory.products.create permission. "
+                "Call this tool before claiming success — never invent product creation."
+            ),
+            {
+                "name": {"type": "string", "description": "Product display name"},
+                "code": {"type": "string", "description": "Product code (optional if auto-code enabled)"},
+                "price": {
+                    "type": "number",
+                    "description": "Sale price / unit price (optional)",
+                },
+                "cost": {"type": "number", "description": "Cost price (optional)"},
+                "isStock": {
+                    "type": "boolean",
+                    "description": "Whether the item is a stock product (default true)",
+                },
+            },
+            ["name"],
         ),
         "explainAuditEntry": _fn(
             "explainAuditEntry",

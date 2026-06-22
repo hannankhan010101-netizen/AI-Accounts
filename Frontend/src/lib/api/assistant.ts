@@ -22,6 +22,7 @@ export type AssistantStreamEvent =
       name: string;
       arguments: Record<string, unknown>;
     }
+  | { type: "invalidate"; keys: string[] }
   | { type: "done"; threadId?: string; engine?: string }
   | {
       type: "error";

@@ -76,7 +76,7 @@ export const authApi = {
     }),
 
   forgotPassword: (body: { email: string }) =>
-    apiFetch<AuthMessage>("/api/v1/auth/forgot-password", {
+    apiFetch<SignUpPending | AuthMessage>("/api/v1/auth/forgot-password", {
       method: "POST",
       body,
       anonymous: true,

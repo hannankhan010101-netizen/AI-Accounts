@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     stripe_price_pro: str = ""
     app_public_url: str = "http://localhost:3000"
     attachment_upload_dir: str = "uploads"
+    attachment_s3_bucket: str = ""
+    attachment_s3_endpoint: str = ""
+    attachment_s3_access_key: str = ""
+    attachment_s3_secret_key: str = ""
+    attachment_s3_region: str = "us-east-1"
     financial_report_ids_file: str = ""
     rate_limit_webhooks_per_minute: int = 120
     rate_limit_auth_per_minute: int = 30

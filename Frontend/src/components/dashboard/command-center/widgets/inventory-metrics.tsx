@@ -45,6 +45,13 @@ export function InventoryValueMetric({ data }: { data: CommandCenterPayload["inv
         <StockBadge label="in stock" count={buckets.inStock} />
         {buckets.lowStock > 0 ? <StockBadge label="low" count={buckets.lowStock} tone="warn" /> : null}
         {buckets.outOfStock > 0 ? <StockBadge label="OOS" count={buckets.outOfStock} tone="danger" /> : null}
+        {data.expiringBatches && data.expiringBatches.totalAlertable > 0 ? (
+          <StockBadge
+            label="expiring"
+            count={data.expiringBatches.totalAlertable}
+            tone="warn"
+          />
+        ) : null}
       </div>
     </div>
   );

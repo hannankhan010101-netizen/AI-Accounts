@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.dashboard_overview_repository import DashboardOverviewRepository
+from app.repositories.inventory_repository import ProductBatchRepository
 from app.repositories.journal_repository import JournalRepository
+from app.repositories.smart_settings_repository import SmartSettingsRepository
 from app.repositories.sql import command_center_queries as ccq
 from app.repositories.sql import dashboard_overview_queries as doq
 from app.repositories.sql.report_aggregate_queries import BANK_CASH_FLOW_MONTHLY_SQL
 from app.services.activity_service import ActivityService
 from app.services.aging_service import AgingService
+from app.services.batch_expiry_alert_service import BatchExpiryAlertService
 from app.services.dashboard_insights_service import build_insights
+from app.services.smart_settings_runtime import SmartSettingsRuntime
 from app.utils.period_range import resolve_period
 from prisma_generated import Prisma
+
+logger = logging.getLogger(__name__)
 
 
 def _dec(value: Any) -> Decimal:
@@ -71,9 +78,11 @@ def _build_executive_kpis(
     sales_trend: list[float],
     bank_trend: list[float],
     has_negative_bank: bool,
+    expiring_alertable: int = 0,
+    expiring_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     cash_status = "critical" if has_negative_bank else _kpi_status_positive(bank_total, prior_bank)
-    return [
+    kpis: list[dict[str, Any]] = [
         {
             "id": "kpi-cash",
             "label": "Cash Available",
@@ -155,6 +164,20 @@ def _build_executive_kpis(
             "drillDownHref": "/reports/stock-valuation",
         },
     ]
+    if expiring_alertable > 0:
+        kpis.append(
+            {
+                "id": "kpi-expiring-batches",
+                "label": "Expiring batches",
+                "value": str(expiring_alertable),
+                "priorValue": "0",
+                "changePct": None,
+                "trendSeries": [float(expiring_alertable)],
+                "status": "warn",
+                "drillDownHref": "/inventory/batches?filter=expiring",
+            }
+        )
+    return kpis
 
 
 def _pct_breakdown(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -246,6 +269,8 @@ class CommandCenterRepository:
         self._aging = AgingService(prisma_client)
         self._activity = ActivityService(prisma_client)
         self._audit = AuditLogRepository(prisma_client)
+        self._batches = ProductBatchRepository(prisma_client)
+        self._smart = SmartSettingsRepository(prisma_client)
 
     async def command_center(
         self,
@@ -474,6 +499,35 @@ class CommandCenterRepository:
         gross_pct = float(gross_profit / income_total * 100) if income_total > 0 else 0.0
         net_pct = float(net_profit / income_total * 100) if income_total > 0 else 0.0
 
+        smart_runtime = SmartSettingsRuntime(
+            smart_settings_repository=self._smart,
+            prisma=self._db,
+        )
+        alert_config = await smart_runtime.inventory_alerts_config(company_id=company_id)
+        if alert_config.get("enabled", True):
+            expiring_rows = await self._batches.list_expiring_batches(
+                company_id=company_id,
+                within_days=int(alert_config["windowDays"]),
+                now=now,
+            )
+            expiry_svc = BatchExpiryAlertService(window_days=int(alert_config["windowDays"]))
+            expiring_summary = expiry_svc.summarize_rows(expiring_rows, now=now)
+        else:
+            expiring_summary = {
+                "windowDays": int(alert_config["windowDays"]),
+                "expired": 0,
+                "expiringSoon": 0,
+                "totalAlertable": 0,
+                "preview": [],
+            }
+        if expiring_summary["totalAlertable"] > 0:
+            logger.info(
+                "expiry_insights_emitted company=%s expired=%s expiring_soon=%s",
+                company_id,
+                expiring_summary["expired"],
+                expiring_summary["expiringSoon"],
+            )
+
         payload: dict[str, Any] = {
             "period": {
                 "from": date_from.date().isoformat(),
@@ -500,6 +554,8 @@ class CommandCenterRepository:
                 sales_trend=sales_trend,
                 bank_trend=bank_trend,
                 has_negative_bank=has_negative_bank,
+                expiring_alertable=int(expiring_summary["totalAlertable"]),
+                expiring_window_days=int(expiring_summary["windowDays"]),
             ),
             "bankCashFlow": bank_cash_flow,
             "bankBalances": bank_balances,
@@ -535,6 +591,7 @@ class CommandCenterRepository:
                 "fastMovers": [_mover_row(r) for r in fast_movers],
                 "slowMovers": [_mover_row(r) for r in slow_movers],
                 "bucketCounts": stock_counts,
+                "expiringBatches": expiring_summary,
             },
             "inventoryStock": stock_counts,
             "profitability": {

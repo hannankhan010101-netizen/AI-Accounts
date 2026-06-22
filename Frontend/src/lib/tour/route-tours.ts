@@ -23,6 +23,7 @@ const ROUTE_TOURS: Record<string, string[]> = {
   "/bank/import-statement": ["onboard.money"],
   "/settings/users": ["onboard.admin"],
   "/inventory/products": ["onboard.stock"],
+  "/inventory/add": ["onboard.stock"],
   "/reports": ["onboard.reports"],
   "/reports/analytical": ["onboard.reports"],
 };

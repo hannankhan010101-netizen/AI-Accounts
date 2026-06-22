@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 import { BRAND } from "@/lib/brand";
@@ -44,8 +46,7 @@ function MarkFrame({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-lg",
-        "bg-brand-600/8 ring-1 ring-brand-600/15 dark:bg-brand-100/10 dark:ring-brand-100/20",
+        "flex shrink-0 items-center justify-center overflow-visible",
         size === "lg" ? "h-12 w-12" : "h-9 w-9",
       )}
     >
@@ -75,9 +76,8 @@ export function BrandLogo({
     >
       <MarkFrame size={isAuth ? "lg" : "md"}>
         <BrandMark
-          size={isAuth ? 28 : isCompact ? 22 : 24}
+          size={isAuth ? 48 : isCompact ? 36 : 36}
           priority={priority}
-          className={isAuth ? "h-7 w-7" : isCompact ? "h-[22px] w-[22px]" : "h-6 w-6"}
         />
       </MarkFrame>
       {!isCompact && <BrandWordmark layout={isAuth ? "auth" : "inline"} />}

@@ -2,18 +2,21 @@
 
 import { useCallback, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { executeClientTool } from "@/features/assistant/tools/client-tool-executor";
 import { formatAssistantError } from "@/features/assistant/errors";
 import { assistantApi, type AssistantStreamEvent } from "@/lib/api/assistant";
 import { isAbortError } from "@/lib/api/abort-error";
 import { resolveScreenContext } from "@/lib/assistant/screen-registry";
+import { invalidateTenantQueries } from "@/lib/api/tenant-query";
 import { useTour } from "@/lib/tour/tour-context";
 import { useCopilotStore } from "@/stores/assistant/copilot-store";
 
 export function useAssistantChat() {
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const { startTour } = useTour();
   const abortRef = useRef<AbortController | null>(null);
   const streamGenerationRef = useRef(0);
@@ -64,6 +67,11 @@ export function useAssistantChat() {
         );
         setPendingTool(null);
       }
+      if (event.type === "invalidate") {
+        for (const key of event.keys) {
+          void invalidateTenantQueries(queryClient, key);
+        }
+      }
       if (event.type === "done") {
         flushStreamingToMessage();
         setStatus("idle");
@@ -86,6 +94,7 @@ export function useAssistantChat() {
       appendToken,
       flushStreamingToMessage,
       pathname,
+      queryClient,
       router,
       setError,
       setPendingTool,

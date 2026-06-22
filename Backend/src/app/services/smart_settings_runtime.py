@@ -82,6 +82,32 @@ class SmartSettingsRuntime:
                 f"Credit limit exceeded: limit {limit}, projected balance {projected}."
             )
 
+    async def inventory_alerts_config(self, *, company_id: str) -> dict[str, Any]:
+        """Batch expiry alert settings from Smart Settings ``inventoryAlerts`` slice."""
+
+        from app.constants.inventory_alerts import EXPIRY_ALERT_WINDOW_DAYS
+
+        data = await self.payload(company_id=company_id)
+        block = data.get("inventoryAlerts")
+        if not isinstance(block, dict):
+            return {
+                "enabled": True,
+                "windowDays": EXPIRY_ALERT_WINDOW_DAYS,
+                "emailDigestEnabled": False,
+                "lastDigestSentAt": None,
+            }
+        window_raw = block.get("windowDays", EXPIRY_ALERT_WINDOW_DAYS)
+        try:
+            window_days = max(1, min(365, int(window_raw)))
+        except (TypeError, ValueError):
+            window_days = EXPIRY_ALERT_WINDOW_DAYS
+        return {
+            "enabled": block.get("enabled", True) is not False,
+            "windowDays": window_days,
+            "emailDigestEnabled": bool(block.get("emailDigestEnabled")),
+            "lastDigestSentAt": block.get("lastDigestSentAt"),
+        }
+
     async def template_draft_enabled(self, *, company_id: str, module_key: str) -> bool:
         data = await self.payload(company_id=company_id)
         block = data.get("templateDraft")

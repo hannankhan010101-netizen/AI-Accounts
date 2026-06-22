@@ -56,11 +56,17 @@ async function refreshAccessToken(): Promise<boolean> {
       }),
     });
     if (!res.ok) return false;
-    const data = (await res.json()) as {
+    const text = await res.text();
+    let data: {
       accessToken: string;
       refreshToken: string;
       tokenType: string;
     };
+    try {
+      data = JSON.parse(text) as typeof data;
+    } catch {
+      return false;
+    }
     setTokens(
       {
         accessToken: data.accessToken,
@@ -181,6 +187,12 @@ function safeJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith("<")) {
+      throw new Error(
+        "API returned HTML instead of JSON. Check that the backend is running on port 8000 and restart it if you recently pulled API changes.",
+      );
+    }
     return text;
   }
 }

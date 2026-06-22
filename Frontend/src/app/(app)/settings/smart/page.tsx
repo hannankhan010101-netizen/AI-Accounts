@@ -22,6 +22,7 @@ import { referenceQueryOptions } from "@/lib/query/options";
 const SECTION_TITLES = [
   "Default nominals",
   "Others",
+  "Inventory alerts",
   "Sales",
   "Purchases",
   "Bank",
@@ -66,6 +67,12 @@ import {
   type SmartSettingsPayload,
 } from "@/components/settings/smart-settings-sections";
 
+const INVENTORY_ALERTS_DEFAULTS = {
+  enabled: true,
+  windowDays: 30,
+  emailDigestEnabled: false,
+};
+
 export default function SmartSettingsPage() {
   const qc = useQueryClient();
   const { companyId } = useCompany();
@@ -73,8 +80,14 @@ export default function SmartSettingsPage() {
 
   const { data, isLoading } = useTenantReferenceQuery(["smart-settings"], () => settingsApi.getSmartSettings());
 
+  const inventoryAlertsDefaults = INVENTORY_ALERTS_DEFAULTS;
+
   const form = useForm<SmartSettingsPayload>({
-    defaultValues: { others: {}, currency: { dateFormat: "dd/mm/yyyy" } },
+    defaultValues: {
+      others: {},
+      currency: { dateFormat: "dd/mm/yyyy" },
+      inventoryAlerts: inventoryAlertsDefaults,
+    },
   });
 
   const serverValues = useMemo(
@@ -94,7 +107,15 @@ export default function SmartSettingsPage() {
   });
 
   useEffect(() => {
-    if (serverValues) form.reset(serverValues);
+    if (serverValues) {
+      form.reset({
+        ...serverValues,
+        inventoryAlerts: {
+          ...inventoryAlertsDefaults,
+          ...serverValues.inventoryAlerts,
+        },
+      });
+    }
   }, [serverValues, form]);
 
   const mutation = useMutation({
@@ -184,6 +205,35 @@ export default function SmartSettingsPage() {
                           {label}
                         </label>
                       ))}
+                    </div>
+                  </AccordionItem>
+                );
+              }
+              if (title === "Inventory alerts") {
+                return (
+                  <AccordionItem key={title} title={title} defaultOpen>
+                    <p className="mb-3 text-xs text-fg-muted">
+                      In-app batch expiry warnings on the dashboard and batches list. Email digest
+                      sends a summary to you when triggered manually or by automation.
+                    </p>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <label className="flex items-center gap-2 text-sm text-fg">
+                        <Checkbox {...form.register("inventoryAlerts.enabled")} />
+                        Enable batch expiry alerts
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-fg">
+                        <Checkbox {...form.register("inventoryAlerts.emailDigestEnabled")} />
+                        Allow email digest (manual run)
+                      </label>
+                      <FormField label="Expiring soon window (days)">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={365}
+                          placeholder="30"
+                          {...form.register("inventoryAlerts.windowDays")}
+                        />
+                      </FormField>
                     </div>
                   </AccordionItem>
                 );

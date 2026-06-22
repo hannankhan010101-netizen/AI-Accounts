@@ -28,7 +28,12 @@ MODULE_PERMISSION_MATRIX: dict[str, tuple[str, ...]] = {
         "purchases.*",
     ),
     "bank": ("bank.payments.create", "bank.reconciliation.create", "bank.*"),
-    "inventory": ("inventory.adjustments.create", "inventory.*"),
+    "inventory": (
+        "inventory.adjustments.create",
+        "inventory.products.create",
+        "inventory.products.read",
+        "inventory.*",
+    ),
     "assembly": ("assembly.jobs.create", "assembly.*"),
     "projects": ("projects.*", "purchases.bills.create"),
     "financial": (

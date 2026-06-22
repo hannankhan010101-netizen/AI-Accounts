@@ -539,24 +539,31 @@ model Supplier {
 }
 
 model Product {
-  id           String   @id @default(cuid())
-  companyId    String   @map("company_id")
-  code         String
-  name         String
-  category     String?
-  unit         String   @default("EA")
-  cost         Decimal  @default(0) @db.Decimal(18, 4)
-  salePrice    Decimal  @default(0) @map("sale_price") @db.Decimal(18, 4)
-  isStock      Boolean  @default(true) @map("is_stock")
-  isArchived   Boolean  @default(false) @map("is_archived")
-  customFields Json     @default("{}") @map("custom_fields")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                       String   @id @default(cuid())
+  companyId                String   @map("company_id")
+  code                     String
+  name                     String
+  category                 String?
+  unit                     String   @default("EA")
+  cost                     Decimal  @default(0) @db.Decimal(18, 4)
+  salePrice                Decimal  @default(0) @map("sale_price") @db.Decimal(18, 4)
+  isStock                  Boolean  @default(true) @map("is_stock")
+  isArchived               Boolean  @default(false) @map("is_archived")
+  customFields             Json     @default("{}") @map("custom_fields")
+  primaryImageAttachmentId String?  @map("primary_image_attachment_id")
+  lowStockLevel            Decimal? @map("low_stock_level") @db.Decimal(18, 4)
+  binLocation              String?  @map("bin_location")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
   company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   uoms      ProductUom[]
 
   @@unique([companyId, code])
   @@index([companyId])
+  @@index([companyId, isArchived])
+  @@index([companyId, name])
+  @@index([companyId, category])
   @@map("products")
 }
 

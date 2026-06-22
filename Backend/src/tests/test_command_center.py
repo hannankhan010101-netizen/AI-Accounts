@@ -30,7 +30,10 @@ def test_build_insights_all_clear_when_healthy() -> None:
     payload = {
         "executiveKpis": [{"id": "kpi-revenue", "changePct": 5.0, "value": "100"}],
         "overdue": {"arCount": 0, "arAmount": "0"},
-        "inventoryCommand": {"bucketCounts": {"lowStock": 0, "outOfStock": 0}},
+        "inventoryCommand": {
+            "bucketCounts": {"lowStock": 0, "outOfStock": 0},
+            "expiringBatches": {"expired": 0, "expiringSoon": 0},
+        },
         "bankCashFlow": [{"net": "100"}],
         "profitability": {
             "margins": {"grossPct": 40},
@@ -39,3 +42,22 @@ def test_build_insights_all_clear_when_healthy() -> None:
     }
     insights = build_insights(payload)
     assert any(i["id"] == "all-clear" for i in insights)
+
+
+def test_build_insights_expiring_batches() -> None:
+    payload = {
+        "executiveKpis": [{"id": "kpi-revenue", "changePct": 5.0, "value": "100"}],
+        "overdue": {"arCount": 0, "arAmount": "0"},
+        "inventoryCommand": {
+            "bucketCounts": {"lowStock": 0, "outOfStock": 0},
+            "expiringBatches": {"expired": 1, "expiringSoon": 2, "windowDays": 30},
+        },
+        "bankCashFlow": [{"net": "100"}],
+        "profitability": {
+            "margins": {"grossPct": 40},
+            "expenseBreakdown": [{"label": "Ops", "pct": 30}],
+        },
+    }
+    insights = build_insights(payload)
+    assert any(i["id"] == "expired-batches" for i in insights)
+    assert any(i["id"] == "expiring-batches" for i in insights)

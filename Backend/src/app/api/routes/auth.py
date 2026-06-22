@@ -55,12 +55,12 @@ async def resend_otp(
     return await auth_service.resend_otp(request=body)
 
 
-@router.post("/forgot-password", response_model=AuthMessageResponse)
+@router.post("/forgot-password", response_model=None)
 async def forgot_password(
     body: ForgotPasswordRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-) -> AuthMessageResponse:
-    """Request password reset OTP (email integration TBD)."""
+) -> SignUpPendingResponse | AuthMessageResponse:
+    """Request password-reset OTP, or signup verification OTP when email is not verified yet."""
 
     return await auth_service.forgot_password(request=body)
 
