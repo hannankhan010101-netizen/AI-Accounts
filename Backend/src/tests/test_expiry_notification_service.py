@@ -14,7 +14,8 @@ from app.services.expiry_notification_service import list_expiry_notifications
 
 @pytest.mark.asyncio
 async def test_list_expiry_notifications_builds_items() -> None:
-    now = datetime(2026, 6, 23, tzinfo=UTC)
+    # Relative to the real clock — the service computes severity with datetime.now(UTC).
+    now = datetime.now(UTC)
     row = SimpleNamespace(
         id="batch1",
         productCode="SKU-1",

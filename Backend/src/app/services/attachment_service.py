@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from app.repositories.attachment_repository import AttachmentRepository
-from app.services.attachment_storage import resolve_path, save_upload
+from app.services.attachment_storage import (
+    UnsafeStorageKeyError,
+    assert_safe_storage_key,
+    resolve_path,
+    save_upload,
+)
 
 
 class AttachmentService:
@@ -40,6 +47,15 @@ class AttachmentService:
     ):
         """Persist attachment row after storage upload."""
 
+        # Client-supplied storage keys must stay inside the caller's own subtree —
+        # blocks registering a crafted key (traversal or another tenant's blob).
+        from app.core.exceptions import ValidationAppError
+
+        try:
+            storage_key = assert_safe_storage_key(storage_key, company_id=company_id)
+        except UnsafeStorageKeyError as exc:
+            raise ValidationAppError(str(exc)) from exc
+
         return await self._repo.create(
             company_id=company_id,
             entity_type=entity_type,
@@ -60,7 +76,9 @@ class AttachmentService:
         data: bytes,
         mime_type: str | None,
     ):
-        storage_key, _path = save_upload(
+        # save_upload does blocking disk/S3 I/O; keep it off the event loop.
+        storage_key, _path = await asyncio.to_thread(
+            save_upload,
             company_id=company_id,
             file_name=file_name,
             data=data,
@@ -79,7 +97,10 @@ class AttachmentService:
         row = await self._repo.get_by_id(company_id=company_id, attachment_id=attachment_id)
         if row is None:
             return None, None
-        path = resolve_path(row.storageKey)
+        try:
+            path = resolve_path(row.storageKey, company_id=company_id)
+        except (UnsafeStorageKeyError, FileNotFoundError):
+            return row, None
         if not path.is_file():
             return row, None
         return row, path
@@ -90,7 +111,10 @@ class AttachmentService:
         row = await self._repo.get_by_id(company_id=company_id, attachment_id=attachment_id)
         if row is None:
             raise NotFoundError("Attachment not found")
-        path = resolve_path(row.storageKey)
-        if path.is_file():
-            path.unlink(missing_ok=True)
+        try:
+            path = resolve_path(row.storageKey, company_id=company_id)
+            if path.is_file():
+                path.unlink(missing_ok=True)
+        except (UnsafeStorageKeyError, FileNotFoundError):
+            pass  # never let a bad legacy key block deleting the metadata row
         await self._repo.delete(company_id=company_id, attachment_id=attachment_id)

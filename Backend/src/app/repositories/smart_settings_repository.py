@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from prisma_generated import Prisma
+from prisma_generated.fields import Json
 from prisma_generated.models import SmartSettings
 
 
@@ -25,8 +26,8 @@ class SmartSettingsRepository:
         return await self._db.smartsettings.upsert(
             where={"companyId": company_id},
             data={
-                "create": {"companyId": company_id, "payload": payload},
-                "update": {"payload": payload},
+                "create": {"companyId": company_id, "payload": Json(payload)},
+                "update": {"payload": Json(payload)},
             },
         )
 

@@ -39,9 +39,20 @@ async def lifespan(app: FastAPI):
     get_settings.cache_clear()
 
     settings = get_settings()
+    if settings.jwt_secret_key == "dev-secret-change-me-min-32-characters-long":
+        logger.warning(
+            "JWT_SECRET_KEY is the built-in dev default — tokens are forgeable. "
+            "Set JWT_SECRET_KEY before exposing this API."
+        )
     os.environ["DATABASE_URL"] = settings.database_url
     prisma = get_prisma_client()
-    await prisma.connect()
+    try:
+        await prisma.connect()
+    except Exception:
+        logger.exception(
+            "Prisma could not connect — check DATABASE_URL and that the database is reachable"
+        )
+        raise
     logger.info("Prisma connected")
 
     read_prisma = None
@@ -196,9 +207,16 @@ def create_app() -> FastAPI:
     origins = _expand_cors_origins(
         [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     )
+    if not origins:
+        # A wildcard origin with credentials is invalid (browsers reject it) and
+        # unsafe. Refuse to fall back to "*"; block cross-origin until configured.
+        logger.warning(
+            "CORS_ORIGINS is empty; cross-origin browser requests are blocked. "
+            "Set CORS_ORIGINS to your frontend URL(s)."
+        )
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=origins or ["*"],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

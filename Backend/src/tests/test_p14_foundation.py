@@ -23,11 +23,14 @@ def test_assembly_report_aliases() -> None:
 
 
 def test_fin_pnl_cat_handler_present() -> None:
+    from app.repositories.journal_repository import JournalRepository
     from app.services.report_query_service import ReportQueryService
 
     src = inspect.getsource(ReportQueryService._financial_comparative_pnl_by_category)
-    assert "categoryName" in src
+    assert "monthly_classified_pnl_by_category" in src
     assert "period_count" in src.lower() or "periodCount" in src
+    repo_src = inspect.getsource(JournalRepository.monthly_classified_pnl_by_category)
+    assert "categoryName" in repo_src
 
 
 @pytest.mark.asyncio

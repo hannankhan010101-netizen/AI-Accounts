@@ -25,8 +25,8 @@ async def test_merge_payload_preserves_existing_keys() -> None:
 
     assert row.payload["others"] == {"x": 1}
     assert row.payload["reportFavorites"] == ["/reports/pl", "/reports/bs"]
+    # payload is wrapped in prisma Json(...) for the DB; unwrap via .data.
     upsert_data = db.smartsettings.upsert.call_args.kwargs["data"]
-    assert upsert_data["update"]["payload"]["reportFavorites"] == [
-        "/reports/pl",
-        "/reports/bs",
-    ]
+    saved_payload = upsert_data["update"]["payload"].data
+    assert saved_payload["reportFavorites"] == ["/reports/pl", "/reports/bs"]
+    assert saved_payload["others"] == {"x": 1}  # existing keys preserved

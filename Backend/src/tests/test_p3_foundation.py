@@ -24,6 +24,17 @@ class _RequestRepo:
     pass
 
 
+def _engine(policy_repo) -> ApprovalEngineService:
+    from unittest.mock import MagicMock
+
+    return ApprovalEngineService(
+        policy_repository=policy_repo,  # type: ignore[arg-type]
+        request_repository=_RequestRepo(),  # type: ignore[arg-type]
+        prisma_client=MagicMock(),
+        membership_roles=MagicMock(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_openapi_p3_routes_registered() -> None:
     from app.main import app
@@ -43,10 +54,7 @@ def test_parse_csv_rows() -> None:
 
 def test_approval_not_required_without_policy() -> None:
     async def _run() -> None:
-        svc = ApprovalEngineService(
-            policy_repository=_PolicyRepo(),  # type: ignore[arg-type]
-            request_repository=_RequestRepo(),  # type: ignore[arg-type]
-        )
+        svc = _engine(_PolicyRepo())
         assert (
             await svc.requires_approval(
                 company_id="c1",
@@ -75,10 +83,7 @@ def test_approval_threshold_from_rules() -> None:
             ]
 
     async def _run() -> None:
-        svc = ApprovalEngineService(
-            policy_repository=_Policies(),  # type: ignore[arg-type]
-            request_repository=_RequestRepo(),  # type: ignore[arg-type]
-        )
+        svc = _engine(_Policies())
         assert await svc.requires_approval(
             company_id="c1",
             entity_type="sales_invoice",

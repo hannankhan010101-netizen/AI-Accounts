@@ -29,7 +29,7 @@ class ReportRunAcceptedResponse(BaseModel):
 
 
 class ReportRunDetailResponse(BaseModel):
-    """Paginated run result (placeholder rows until query engine exists)."""
+    """Paginated run result rows."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -41,7 +41,7 @@ class ReportRunDetailResponse(BaseModel):
 
 
 class ReportExportResultResponse(BaseModel):
-    """Export stub — replace with signed URL or streaming when implemented."""
+    """Export result — inline content or a download URL."""
 
     model_config = ConfigDict(populate_by_name=True)
 

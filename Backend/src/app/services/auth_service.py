@@ -67,7 +67,30 @@ class AuthService:
 
         existing = await self._users.find_by_email(email=request.email)
         if existing:
-            raise ConflictError("Email already registered")
+            # A verified account is a genuine conflict. An UNVERIFIED account is a
+            # signup still in progress (possibly interrupted): resume it instead of
+            # dead-ending the user with "email already registered" and no recovery.
+            if existing.emailVerified:
+                raise ConflictError("Email already registered")
+            await self._ensure_company_for_user(
+                user_id=existing.id, company_name=request.company_name
+            )
+            expires_at, plain = await self._store_otp(
+                user_id=existing.id,
+                email=request.email,
+                purpose=otp_purpose.SIGNUP,
+            )
+            email_sent = await self._email.send_otp_email(
+                to=request.email,
+                code=plain,
+                purpose=otp_purpose.SIGNUP,
+            )
+            return self._pending_response(
+                email=request.email,
+                expires_at=expires_at,
+                plain_otp=plain,
+                email_sent=email_sent,
+            )
         password_hash = hash_password(request.password)
         user = await self._users.create(
             email=request.email,
@@ -76,15 +99,13 @@ class AuthService:
             last_name=request.last_name,
             email_verified=False,
         )
-        company = await self._companies.create_company(name=request.company_name)
-        await self._companies.add_membership(
-            company_id=company.id,
-            user_id=user.id,
-            is_default=True,
-            role_id=None,
+        # If company/defaults creation fails partway, the user is left unverified
+        # with no (or a half-seeded) company. That is recoverable: a repeat signup
+        # resumes via the branch above, and verify/login self-heal via
+        # _ensure_founding_role. So we surface the error without a risky delete.
+        await self._ensure_company_for_user(
+            user_id=user.id, company_name=request.company_name
         )
-        await self._bootstrap.create_phase1_defaults(company_id=company.id)
-        await self._bootstrap.assign_admin_role(company_id=company.id, user_id=user.id)
         expires_at, plain = await self._store_otp(
             user_id=user.id,
             email=request.email,
@@ -96,9 +117,8 @@ class AuthService:
             purpose=otp_purpose.SIGNUP,
         )
         logger.info(
-            "Registered user %s company %s pending email verify (otp_email_sent=%s)",
+            "Registered user %s pending email verify (otp_email_sent=%s)",
             user.id,
-            company.id,
             email_sent,
         )
         return self._pending_response(
@@ -107,6 +127,32 @@ class AuthService:
             plain_otp=plain,
             email_sent=email_sent,
         )
+
+    async def _ensure_company_for_user(
+        self, *, user_id: str, company_name: str
+    ) -> str:
+        """Ensure the user has a default company with defaults + Super Admin.
+
+        Idempotent: if the user already has a default company (e.g. an
+        interrupted signup that got as far as membership), it is reused and only
+        the self-healing backfill runs. Returns the company id.
+        """
+
+        company_id = await self._companies.get_default_company_id_for_user(
+            user_id=user_id
+        )
+        if company_id is None:
+            company = await self._companies.create_company(name=company_name)
+            await self._companies.add_membership(
+                company_id=company.id,
+                user_id=user_id,
+                is_default=True,
+                role_id=None,
+            )
+            await self._bootstrap.create_phase1_defaults(company_id=company.id)
+            company_id = company.id
+        await self._ensure_founding_role(company_id=company_id, user_id=user_id)
+        return company_id
 
     async def verify_email(self, *, request: VerifyEmailRequest) -> AuthTokensResponse:
         """Validate signup OTP and activate the account."""
@@ -349,6 +395,10 @@ class AuthService:
         user = await self._users.find_by_email(email=request.email)
         if user is None or not verify_password(request.password, user.passwordHash):
             raise UnauthorizedError("Invalid email or password")
+        # Deactivated users must not obtain fresh tokens (refresh_tokens already
+        # enforces this; login must too, or deactivation only bites on refresh).
+        if not user.isActive:
+            raise UnauthorizedError("Invalid email or password")
         if not user.emailVerified:
             raise ForbiddenError("Email address is not verified. Complete OTP verification first.")
         company_id = await self._companies.get_default_company_id_for_user(user_id=user.id)
@@ -358,10 +408,15 @@ class AuthService:
         return self._issue_tokens(user_id=user.id, company_id=company_id)
 
     async def _ensure_founding_role(self, *, company_id: str, user_id: str) -> None:
-        """Backfill Super Admin when company bootstrap did not attach a membership role."""
+        """Backfill Super Admin + chart/defaults when bootstrap was incomplete.
+
+        Runs on verify-email and login, so a company created before chart seeding
+        existed (or via a partially-failed signup) self-heals on next sign-in.
+        """
 
         await self._bootstrap.seed_missing_template_roles(company_id=company_id)
         await self._bootstrap.assign_admin_role(company_id=company_id, user_id=user_id)
+        await self._bootstrap.seed_chart_and_defaults(company_id=company_id)
 
     def _issue_tokens(self, *, user_id: str, company_id: str) -> AuthTokensResponse:
         """Build access and refresh JWTs embedding active company."""

@@ -10,18 +10,33 @@ import pytest
 
 from app.core.exceptions import ForbiddenError
 from app.domain import document_workflow as wf
+from app.services.effective_permission_service import EffectivePermissionService
 from app.services.permission_service import PermissionService
 
 
-class _FakeMembershipRepo:
-    def __init__(self, permissions: list[str] | None) -> None:
+class _FakeEffective:
+    matches = staticmethod(EffectivePermissionService.matches)
+    filter_by_module = staticmethod(EffectivePermissionService.filter_by_module)
+
+    def __init__(self, permissions: list[str]) -> None:
         self._permissions = permissions
 
-    async def get_membership(self, *, company_id: str, user_id: str) -> dict | None:
+    async def permissions_for_user(self, *, company_id: str, user_id: str) -> list[str]:
         _ = company_id, user_id
-        if self._permissions is None:
-            return None
-        return {"permissions": self._permissions}
+        return list(self._permissions)
+
+
+class _FakeAccessControl:
+    async def disabled_modules(self, *, company_id: str) -> set[str]:
+        _ = company_id
+        return set()
+
+
+def _permission_service(permissions: list[str]) -> PermissionService:
+    return PermissionService(
+        effective_permissions=_FakeEffective(permissions),  # type: ignore[arg-type]
+        access_control=_FakeAccessControl(),  # type: ignore[arg-type]
+    )
 
 
 def test_document_workflow_allows_draft_to_posted() -> None:
@@ -35,7 +50,7 @@ def test_document_workflow_blocks_posted_to_draft() -> None:
 
 @pytest.mark.asyncio
 async def test_permission_denies_empty_role() -> None:
-    svc = PermissionService(membership_repository=_FakeMembershipRepo([]))  # type: ignore[arg-type]
+    svc = _permission_service([])
     with pytest.raises(ForbiddenError, match="No role assigned"):
         await svc.assert_allowed(
             company_id="c1", user_id="u1", permission="sales.invoices.create"
@@ -44,7 +59,7 @@ async def test_permission_denies_empty_role() -> None:
 
 @pytest.mark.asyncio
 async def test_permission_wildcard_module() -> None:
-    svc = PermissionService(membership_repository=_FakeMembershipRepo(["sales.*"]))  # type: ignore[arg-type]
+    svc = _permission_service(["sales.*"])
     await svc.assert_allowed(
         company_id="c1", user_id="u1", permission="sales.invoices.approve"
     )

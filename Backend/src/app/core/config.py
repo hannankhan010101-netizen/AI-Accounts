@@ -122,6 +122,18 @@ class Settings(BaseSettings):
     assistant_rate_limit_per_minute: int = 30
     assistant_max_message_chars: int = 4000
     assistant_memory_turns: int = 20
+    # AI intelligence layer — Anthropic Claude (primary provider) + task-tier routing.
+    # Key flows through secrets_resolver: ANTHROPIC_API_KEY -> env -> settings.
+    anthropic_api_key: str = ""
+    anthropic_enabled: bool = True
+    anthropic_model: str = "claude-sonnet-5"
+    anthropic_max_tokens: int = 2048
+    anthropic_timeout_seconds: float = 60.0
+    # Provider routing: preferred provider per task tier ("claude" | "groq" | "openai").
+    # Router falls back to whichever provider is actually configured, so a Groq-only
+    # deploy is unchanged until an Anthropic key is added.
+    ai_provider_primary: str = "claude"
+    ai_provider_fast: str = "groq"
     # Brevo (https://app.brevo.com) — preferred for OTP emails
     brevo_api_key: str = ""
     brevo_sender_email: str = "hannan.khan010101@gmail.com"

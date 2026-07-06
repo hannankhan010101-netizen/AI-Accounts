@@ -15,6 +15,31 @@ from app.core.config import get_settings
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
+class UnsafeStorageKeyError(ValueError):
+    """A storage key that would escape the uploads root or the company subtree."""
+
+
+def assert_safe_storage_key(storage_key: str, *, company_id: str | None = None) -> str:
+    """Validate a (possibly client-supplied) storage key; return the normalized key.
+
+    Blocks the attachment path-traversal LFI: a registered key like
+    ``../../../../etc/passwd`` (or another tenant's ``otherCompany/...``) must never
+    resolve outside the caller's own uploads subtree.
+    """
+
+    key = (storage_key or "").strip().replace("\\", "/").lstrip("/")
+    if not key:
+        raise UnsafeStorageKeyError("empty storage key")
+    parts = key.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise UnsafeStorageKeyError(f"unsafe storage key: {storage_key!r}")
+    if len(key) >= 2 and key[1] == ":":  # Windows drive-letter absolute path
+        raise UnsafeStorageKeyError(f"absolute storage key rejected: {storage_key!r}")
+    if company_id is not None and parts[0] != company_id:
+        raise UnsafeStorageKeyError("storage key is outside the company scope")
+    return key
+
+
 def _s3_enabled() -> bool:
     return bool(get_settings().attachment_s3_bucket.strip())
 
@@ -72,14 +97,26 @@ def save_upload(*, company_id: str, file_name: str, data: bytes) -> tuple[str, s
     return storage_key, str(dest)
 
 
-def resolve_path(storage_key: str) -> Path:
-    if storage_key.startswith("s3://") or _s3_enabled():
-        # Local dev fallback: blobs may still exist on disk from pre-S3 uploads.
-        local = uploads_root() / storage_key
-        if local.is_file():
-            return local
+def resolve_path(storage_key: str, *, company_id: str | None = None) -> Path:
+    key = (storage_key or "").strip()
+    if key.startswith("s3://"):
         raise FileNotFoundError(
             f"S3-backed attachment {storage_key!r}; download via signed URL in production"
         )
-    return uploads_root() / storage_key
+
+    safe_key = assert_safe_storage_key(key, company_id=company_id)
+    root = uploads_root().resolve()
+    candidate = (root / safe_key).resolve()
+    # Defense in depth: even a validated key must never resolve outside the root.
+    if not candidate.is_relative_to(root):
+        raise UnsafeStorageKeyError(f"storage key escapes uploads root: {storage_key!r}")
+
+    if _s3_enabled():
+        # Local dev fallback: blobs may still exist on disk from pre-S3 uploads.
+        if candidate.is_file():
+            return candidate
+        raise FileNotFoundError(
+            f"S3-backed attachment {storage_key!r}; download via signed URL in production"
+        )
+    return candidate
 

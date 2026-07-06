@@ -26,7 +26,7 @@ def build_billing_readiness(settings: Settings) -> dict[str, Any]:
         missing.append("STRIPE_WEBHOOK_SECRET")
 
     configured = not missing
-    mode = "live" if configured else ("stub" if secret else "stub")
+    mode = "live" if configured else "stub"
     return {
         "configured": configured,
         "ready": configured,

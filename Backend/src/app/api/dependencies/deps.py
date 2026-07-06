@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, AsyncIterator
+from typing import Annotated, Any, AsyncIterator
 
 from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -736,6 +736,19 @@ def get_groq_client() -> "GroqClient":
     return GroqClient()
 
 
+def get_llm_provider():
+    """Task-tier provider router (Claude primary, Groq/OpenAI fallback lanes).
+
+    Satisfies the same streaming event-dict contract as GroqClient, so it drops
+    into the assistant orchestrator unchanged. Falls back to whichever provider is
+    configured — a Groq-only deploy behaves exactly as before.
+    """
+
+    from app.services.ai.providers.router import ProviderRouter
+
+    return ProviderRouter()
+
+
 def get_assistant_tool_handlers(
     permission_service: Annotated[PermissionService, Depends(get_permission_service)],
     sales_invoice_repository: Annotated[
@@ -757,7 +770,7 @@ def get_assistant_tool_handlers(
 
 
 def get_assistant_orchestrator(
-    groq_client: Annotated["GroqClient", Depends(get_groq_client)],
+    llm_provider: Annotated[Any, Depends(get_llm_provider)],
     conversation_repository: Annotated[
         "AssistantConversationRepository", Depends(get_assistant_conversation_repository)
     ],
@@ -766,8 +779,10 @@ def get_assistant_orchestrator(
 ) -> "AssistantOrchestrator":
     from app.services.assistant.orchestrator import AssistantOrchestrator
 
+    # llm_provider is the task-tier ProviderRouter; it satisfies the same
+    # streaming contract the orchestrator expects from a single provider.
     return AssistantOrchestrator(
-        groq_client=groq_client,
+        groq_client=llm_provider,
         conversation_repository=conversation_repository,
         tool_handlers=tool_handlers,
         audit_log_service=audit_log_service,

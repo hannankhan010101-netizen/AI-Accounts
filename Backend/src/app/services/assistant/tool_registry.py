@@ -22,6 +22,7 @@ SERVER_TOOLS = frozenset(
         "fetchReports",
         "searchInventory",
         "createProduct",
+        "updateProduct",
         "explainAuditEntry",
     }
 )
@@ -61,6 +62,7 @@ MODE_TOOL_NAMES: dict[str, frozenset[str]] = {
             "helpUser",
             "searchInventory",
             "createProduct",
+            "updateProduct",
         }
     ),
     "reconciliation": frozenset(
@@ -89,6 +91,7 @@ MODE_TOOL_NAMES: dict[str, frozenset[str]] = {
             "fetchReports",
             "searchInventory",
             "createProduct",
+            "updateProduct",
             "explainAuditEntry",
         }
     ),
@@ -187,6 +190,9 @@ def _all_tool_defs() -> dict[str, dict[str, Any]]:
             "createProduct",
             (
                 "Create a product in inventory after the user confirms details. "
+                "Before calling this, confirm the cost (purchase/COGS price) with the user — "
+                "it is separate from sale price and defaults to 0 if omitted, so do not leave it "
+                "unset unless the user explicitly says there is no cost. "
                 "Requires inventory.products.create permission. "
                 "Call this tool before claiming success — never invent product creation."
             ),
@@ -204,6 +210,25 @@ def _all_tool_defs() -> dict[str, dict[str, Any]]:
                 },
             },
             ["name"],
+        ),
+        "updateProduct": _fn(
+            "updateProduct",
+            (
+                "Update fields on an EXISTING product (e.g. change its cost or sale price). "
+                "Use this — not createProduct — whenever the product already exists. "
+                "Identify the product by its code (or id) and pass only the fields to change; "
+                "omitted fields are left untouched. Requires inventory.products.create permission. "
+                "Call this tool before claiming success — never tell the user to edit manually."
+            ),
+            {
+                "code": {"type": "string", "description": "Existing product code to update"},
+                "id": {"type": "string", "description": "Existing product id (alternative to code)"},
+                "name": {"type": "string", "description": "New product name (optional)"},
+                "price": {"type": "number", "description": "New sale price (optional)"},
+                "cost": {"type": "number", "description": "New cost / purchase price (optional)"},
+                "isStock": {"type": "boolean", "description": "Whether it is a stock product (optional)"},
+            },
+            [],
         ),
         "explainAuditEntry": _fn(
             "explainAuditEntry",

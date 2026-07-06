@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.constants.module_codes import ALL_MODULE_CODES
-from app.constants.module_permission_matrix import MODULE_PERMISSION_MATRIX
+from app.constants.module_permission_matrix import (
+    MODULE_PERMISSION_MATRIX,
+    MODULE_WRITE_PERMISSIONS,
+)
 from app.constants.permission_catalog import MODULE_LIST_READ_PERMISSIONS
+from app.core.exceptions import ForbiddenError
 from app.services.access_control_service import AccessControlService
 from app.services.module_entitlement_service import ModuleEntitlementService
 from app.services.permission_service import PermissionService
@@ -46,11 +50,15 @@ class ModuleAccessService:
             company_id=company_id, module_code=code
         )
         await self._modules.assert_enabled(company_id=company_id, module_code=code)
-        required = MODULE_PERMISSION_MATRIX.get(code)
-        if required:
-            await self._permissions.assert_any_allowed(
-                company_id=company_id, user_id=user_id, permissions=required
-            )
+        # Write gate: use the write-only permission set (read-tier permissions do
+        # not authorize mutating routes). Fail closed on an unknown module code so
+        # a typo/new module can never silently authorize every member.
+        required = MODULE_WRITE_PERMISSIONS.get(code)
+        if required is None:
+            raise ForbiddenError(f"Unknown module: {module_code}")
+        await self._permissions.assert_any_allowed(
+            company_id=company_id, user_id=user_id, permissions=required
+        )
 
     async def matrix_for_user(
         self, *, company_id: str, user_id: str

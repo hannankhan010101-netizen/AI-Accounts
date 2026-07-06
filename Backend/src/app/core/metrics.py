@@ -64,6 +64,7 @@ class MetricsRegistry:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            counters = dict(self._counters)
             histograms = {
                 k: {
                     "sum": self._histogram_sum[k],
@@ -76,12 +77,14 @@ class MetricsRegistry:
                 }
                 for k in self._histogram_sum
             }
-            return {
-                "counters": dict(self._counters),
-                "histograms": histograms,
-                "httpLatencyMs": self.latency_percentiles(),
-                "collectedAt": time.time(),
-            }
+        # latency_percentiles() re-acquires the (non-reentrant) lock — call it
+        # only after releasing, or snapshot() deadlocks.
+        return {
+            "counters": counters,
+            "histograms": histograms,
+            "httpLatencyMs": self.latency_percentiles(),
+            "collectedAt": time.time(),
+        }
 
     def render_prometheus(self) -> str:
         lines: list[str] = []

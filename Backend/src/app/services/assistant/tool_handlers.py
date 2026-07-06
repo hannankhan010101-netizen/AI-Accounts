@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.core.exceptions import ForbiddenError, ValidationAppError
@@ -25,16 +25,60 @@ def _has(perms: list[str], code: str) -> bool:
     return False
 
 
-def _to_decimal(value: Any) -> Decimal | None:
-    if value is None or value == "":
-        return None
+# Product cost/salePrice/lowStockLevel are Decimal(18,4): max 14 integer digits.
+_QUANT = Decimal("0.0001")
+_MONEY_MAX = Decimal("99999999999999.9999")
+
+
+def _parse_amount(value: Any) -> tuple[Decimal | None, str | None]:
+    """Parse a monetary/quantity argument from an LLM tool call.
+
+    Returns ``(amount, error)``:
+    - ``(None, None)``  -> not provided (caller should leave the field unset)
+    - ``(None, msg)``   -> provided but invalid (caller should reject with ``msg``)
+    - ``(Decimal, None)`` -> valid, normalized to 4 dp and within DB range
+    """
+
+    if value is None:
+        return None, None
+    if isinstance(value, str) and not value.strip():
+        return None, None
+    if isinstance(value, bool):  # bool is an int subclass; reject to avoid True->1
+        return None, "must be a number, not true/false"
     try:
-        parsed = Decimal(str(value))
+        parsed = Decimal(str(value).strip().replace(",", ""))
     except (InvalidOperation, ValueError):
-        return None
+        return None, "must be a valid number"
+    if not parsed.is_finite():  # rejects NaN / Infinity (which slip past < 0)
+        return None, "must be a finite number"
     if parsed < 0:
-        return None
-    return parsed
+        return None, "cannot be negative"
+    if parsed > _MONEY_MAX:
+        return None, "is too large (maximum 99,999,999,999,999.9999)"
+    return parsed.quantize(_QUANT, rounding=ROUND_HALF_UP), None
+
+
+def _coerce_bool(value: Any, *, default: bool) -> bool:
+    """Coerce an LLM-supplied flag to bool, treating string 'false'/'0'/'no' correctly."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    s = str(value).strip().lower()
+    if s in ("true", "1", "yes", "y", "on"):
+        return True
+    if s in ("false", "0", "no", "n", "off", ""):
+        return False
+    return default
+
+
+def _clean_name(value: Any, *, limit: int = 200) -> str:
+    """Collapse whitespace/newlines and cap length for a free-text name."""
+
+    return " ".join(str(value or "").split())[:limit]
 
 
 class AssistantToolHandlers:
@@ -73,9 +117,11 @@ class AssistantToolHandlers:
             }
 
         if name == "searchInvoices":
-            if not _has(perms, "sales.invoices.create") and not _has(perms, "sales.*"):
-                if not any(_has(perms, p) for p in ("sales.invoices.*", "financial.*", "*")):
-                    return {"ok": False, "error": "Missing permission to view sales invoices."}
+            if not any(
+                _has(perms, p)
+                for p in ("sales.read", "sales.invoices.read", "sales.invoices.create", "sales.*")
+            ):
+                return {"ok": False, "error": "Missing permission to view sales invoices."}
             q = str(arguments.get("query") or "").strip().lower()
             limit = min(int(arguments.get("limit") or 10), 20)
             rows = await self._invoices.list_invoices(company_id=company_id, take=50)
@@ -128,9 +174,8 @@ class AssistantToolHandlers:
             }
 
         if name == "fetchReports":
-            if not _has(perms, "financial.reports.read") and not _has(perms, "*"):
-                if not _has(perms, "financial.*"):
-                    return {"ok": False, "error": "Missing permission to access reports."}
+            if not any(_has(perms, p) for p in ("reports.read", "reports.*")):
+                return {"ok": False, "error": "Missing permission to access reports."}
             return {
                 "ok": True,
                 "reports": [
@@ -185,15 +230,23 @@ class AssistantToolHandlers:
                 detail = exc.detail if isinstance(exc.detail, dict) else {}
                 return {"ok": False, "error": detail.get("message", "Forbidden")}
 
-            product_name = str(arguments.get("name") or "").strip()
+            product_name = _clean_name(arguments.get("name"))
             if not product_name:
                 return {"ok": False, "error": "Product name is required."}
 
-            provided_code = str(arguments.get("code") or "").strip() or None
-            price = _to_decimal(arguments.get("price") if arguments.get("price") is not None else arguments.get("salePrice"))
-            cost = _to_decimal(arguments.get("cost"))
-            is_stock_raw = arguments.get("isStock")
-            is_stock = True if is_stock_raw is None else bool(is_stock_raw)
+            provided_code = _clean_name(arguments.get("code"), limit=64) or None
+
+            price, price_err = _parse_amount(
+                arguments.get("price")
+                if arguments.get("price") is not None
+                else arguments.get("salePrice")
+            )
+            if price_err:
+                return {"ok": False, "error": f"Sale price {price_err}."}
+            cost, cost_err = _parse_amount(arguments.get("cost"))
+            if cost_err:
+                return {"ok": False, "error": f"Cost {cost_err}."}
+            is_stock = _coerce_bool(arguments.get("isStock"), default=True)
 
             try:
                 code = await self._auto_code.resolve_code(
@@ -209,7 +262,10 @@ class AssistantToolHandlers:
                 row = existing[0]
                 return {
                     "ok": False,
-                    "error": f"Product code '{code}' already exists.",
+                    "error": (
+                        f"Product code '{code}' already exists. "
+                        "To change its details (e.g. cost or price), call updateProduct instead."
+                    ),
                     "existingProduct": {
                         "id": row.id,
                         "code": row.code,
@@ -217,14 +273,23 @@ class AssistantToolHandlers:
                     },
                 }
 
-            row = await self._products.create_product(
-                company_id=company_id,
-                code=code,
-                name=product_name,
-                is_stock=is_stock,
-                cost=cost,
-                sale_price=price,
-            )
+            try:
+                row = await self._products.create_product(
+                    company_id=company_id,
+                    code=code,
+                    name=product_name,
+                    is_stock=is_stock,
+                    cost=cost,
+                    sale_price=price,
+                )
+            except Exception:  # noqa: BLE001 - surface a clean message, never a 500 to chat
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Could not create product '{product_name}'. "
+                        "The code may already be in use — try a different code."
+                    ),
+                }
             return {
                 "ok": True,
                 "product": {
@@ -238,10 +303,100 @@ class AssistantToolHandlers:
                 "invalidate": ["products"],
             }
 
+        if name == "updateProduct":
+            try:
+                await self._perms.assert_allowed(
+                    company_id=company_id,
+                    user_id=user_id,
+                    permission="inventory.products.create",
+                )
+            except ForbiddenError as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                return {"ok": False, "error": detail.get("message", "Forbidden")}
+
+            product_id = str(arguments.get("id") or "").strip() or None
+            code = _clean_name(arguments.get("code"), limit=64) or None
+
+            row = None
+            if product_id:
+                row = await self._products.get_by_id(
+                    company_id=company_id, product_id=product_id
+                )
+            elif code:
+                matches = await self._products.get_by_codes(
+                    company_id=company_id, codes=[code]
+                )
+                row = matches[0] if matches else None
+            if row is None:
+                return {
+                    "ok": False,
+                    "error": "Product not found. Provide the code or id of an existing product.",
+                }
+
+            data: dict[str, Any] = {}
+
+            if "name" in arguments:
+                new_name = _clean_name(arguments.get("name"))
+                if not new_name:
+                    return {"ok": False, "error": "Product name cannot be empty."}
+                data["name"] = new_name
+
+            if arguments.get("cost") is not None:
+                cost, cost_err = _parse_amount(arguments.get("cost"))
+                if cost_err:
+                    return {"ok": False, "error": f"Cost {cost_err}."}
+                data["cost"] = cost
+
+            price_arg = (
+                arguments.get("price")
+                if arguments.get("price") is not None
+                else arguments.get("salePrice")
+            )
+            if price_arg is not None:
+                price, price_err = _parse_amount(price_arg)
+                if price_err:
+                    return {"ok": False, "error": f"Sale price {price_err}."}
+                data["salePrice"] = price
+
+            if arguments.get("isStock") is not None:
+                data["isStock"] = _coerce_bool(arguments.get("isStock"), default=True)
+
+            if not data:
+                return {
+                    "ok": False,
+                    "error": "No fields to update. Specify at least one of name, cost, price, or isStock.",
+                }
+
+            try:
+                updated = await self._products.update_product(
+                    product_id=row.id,
+                    company_id=company_id,
+                    data=data,
+                )
+            except ValueError:
+                return {"ok": False, "error": "Product not found."}
+            except Exception:  # noqa: BLE001 - never surface a raw 500 to chat
+                return {
+                    "ok": False,
+                    "error": f"Could not update product '{row.name}'. Please try again.",
+                }
+
+            return {
+                "ok": True,
+                "product": {
+                    "id": updated.id,
+                    "code": updated.code,
+                    "name": updated.name,
+                    "cost": str(updated.cost),
+                    "salePrice": str(updated.salePrice),
+                    "unit": updated.unit,
+                },
+                "invalidate": ["products"],
+            }
+
         if name == "explainAuditEntry":
-            if not _has(perms, "settings.audit.read") and not _has(perms, "*"):
-                if not _has(perms, "financial.*"):
-                    return {"ok": False, "error": "Missing permission to view audit log."}
+            if not any(_has(perms, p) for p in ("settings.users.read", "settings.read")):
+                return {"ok": False, "error": "Missing permission to view audit log."}
             limit = min(int(arguments.get("limit") or 5), 20)
             tx_type = arguments.get("transactionType")
             rows = await self._audit.list_filtered(

@@ -5,8 +5,11 @@ from __future__ import annotations
 from prisma_generated import Prisma
 from prisma_generated.fields import Json
 
+from app.constants.default_chart_of_accounts import DEFAULT_POSTING_DEFAULTS
 from app.constants.role_templates import ROLE_TEMPLATES
+from app.repositories.coa_repository import CoaRepository
 from app.repositories.role_permission_repository import RolePermissionRepository
+from app.repositories.smart_settings_repository import SmartSettingsRepository
 
 
 class CompanyBootstrapRepository:
@@ -15,6 +18,8 @@ class CompanyBootstrapRepository:
     def __init__(self, prisma_client: Prisma) -> None:
         self._db = prisma_client
         self._role_permissions = RolePermissionRepository(prisma_client)
+        self._coa = CoaRepository(prisma_client)
+        self._smart_settings = SmartSettingsRepository(prisma_client)
 
     async def create_phase1_defaults(self, *, company_id: str) -> None:
         """
@@ -58,6 +63,47 @@ class CompanyBootstrapRepository:
                 },
             )
             await self._role_permissions.replace_for_role(role_id=role.id, codes=perms)
+
+        # Seed a working chart of accounts + posting defaults so the company can
+        # post immediately (see seed_chart_and_defaults — idempotent).
+        await self.seed_chart_and_defaults(company_id=company_id)
+
+    async def seed_chart_and_defaults(self, *, company_id: str) -> None:
+        """Idempotently ensure a chart of accounts and Smart Settings posting defaults.
+
+        Safe to call on bootstrap AND as a backfill for existing companies: the
+        chart is only seeded when the company has none, and a posting default is
+        only wired when it is currently unset AND the target nominal actually
+        exists on the chart (so a company with a custom chart is never pointed at
+        a non-existent code).
+        """
+
+        await self._coa.seed_default_chart(company_id=company_id)
+
+        row = await self._smart_settings.get_for_company(company_id=company_id)
+        payload: dict = dict(row.payload) if row and isinstance(row.payload, dict) else {}
+        defaults: dict = dict(payload.get("defaults") or {})
+
+        wanted_codes = list(set(DEFAULT_POSTING_DEFAULTS.values()))
+        present = set(
+            (
+                await self._coa.nominal_ids_by_codes(
+                    company_id=company_id, codes=wanted_codes
+                )
+            ).keys()
+        )
+
+        changed = False
+        for key, code in DEFAULT_POSTING_DEFAULTS.items():
+            if not defaults.get(key) and code in present:
+                defaults[key] = code
+                changed = True
+
+        if changed:
+            payload["defaults"] = defaults
+            await self._smart_settings.upsert_payload(
+                company_id=company_id, payload=payload
+            )
 
     async def seed_missing_template_roles(
         self, *, company_id: str

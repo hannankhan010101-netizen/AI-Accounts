@@ -4746,7 +4746,7 @@ async def export_report_run(
     report_service: Annotated[ReportService, Depends(get_report_service)],
     _access: Annotated[JwtClaims, Depends(require_module_access("financial"))],
 ) -> dict:
-    """Export stub."""
+    """Export a completed run's rows as CSV/JSON."""
 
     result = await report_service.export_run(
         company_id=company_id,

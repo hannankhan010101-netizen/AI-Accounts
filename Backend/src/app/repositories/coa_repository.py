@@ -90,6 +90,70 @@ class CoaRepository:
             for s in rows
         ]
 
+    async def create_category(
+        self,
+        *,
+        company_id: str,
+        code: str,
+        name: str,
+        category_type: str = "Other",
+        sort_order: int = 0,
+    ) -> CoaCategory:
+        """Create a top-level COA category (previously impossible via the app)."""
+
+        allowed = {"Income", "Expense", "Asset", "Liability", "Equity", "Other"}
+        if category_type not in allowed:
+            raise ValueError(f"categoryType must be one of {sorted(allowed)}")
+        return await self._db.coacategory.create(
+            data={
+                "companyId": company_id,
+                "code": code,
+                "name": name,
+                "categoryType": category_type,
+                "sortOrder": sort_order,
+            },
+        )
+
+    async def seed_default_chart(self, *, company_id: str) -> bool:
+        """Seed the standard starter chart if the company has none.
+
+        Idempotent: returns ``False`` (and does nothing) when any category
+        already exists, so it is safe to call on every login/bootstrap.
+        """
+
+        from app.constants.default_chart_of_accounts import DEFAULT_CHART
+
+        existing = await self._db.coacategory.count(where={"companyId": company_id})
+        if existing:
+            return False
+
+        for c_order, cat in enumerate(DEFAULT_CHART):
+            category = await self.create_category(
+                company_id=company_id,
+                code=str(cat["code"]),
+                name=str(cat["name"]),
+                category_type=str(cat["type"]),
+                sort_order=c_order,
+            )
+            for s_order, sec in enumerate(cat["sections"]):
+                section = await self._db.coasection.create(
+                    data={
+                        "categoryId": category.id,
+                        "code": str(sec["code"]),
+                        "name": str(sec["name"]),
+                        "sortOrder": s_order,
+                    },
+                )
+                for nom in sec["nominals"]:
+                    await self._db.nominalaccount.create(
+                        data={
+                            "sectionId": section.id,
+                            "code": str(nom["code"]),
+                            "name": str(nom["name"]),
+                        },
+                    )
+        return True
+
     async def create_section(
         self,
         *,

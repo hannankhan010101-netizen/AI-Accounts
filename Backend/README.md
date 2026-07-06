@@ -72,11 +72,11 @@ Restart the API after changing `.env`. If Brevo is not configured, set `AUTH_EXP
 
 ### Local dev performance
 
-For **local development**, use the Supabase **session pooler** (port `5432`) with `connection_limit=5` in `DATABASE_URL`. This allows parallel API requests (dashboard load, shell warmup) without queuing behind the global DB gate in [`db_concurrency_middleware`](src/app/middleware/db_concurrency.py).
+For **local development**, use the Supabase **session pooler** (port `5432`) with `connection_limit=10` in `DATABASE_URL`. This allows parallel API requests (dashboard load, shell warmup) without queuing behind the global DB gate in [`db_concurrency_middleware`](src/app/middleware/db_concurrency.py). The dashboard command-center fans out ~18 concurrent queries via `asyncio.gather`; a pool of 10 lets them run in ~2 waves instead of ~4, roughly halving the dashboard's DB phase. Keep it ≤ the session pooler's per-client limit (raise cautiously — one uvicorn process only).
 
 | Environment | `DATABASE_URL` |
 |-------------|----------------|
-| **Local dev** | Session pooler `:5432`, `connection_limit=5` (no `pgbouncer=true`) |
+| **Local dev** | Session pooler `:5432`, `connection_limit=10` (no `pgbouncer=true`) |
 | **Production** | Transaction pooler `:6543`, `pgbouncer=true&connection_limit=1` |
 
 With `connection_limit=1`, every HTTP handler serializes on one Prisma connection — a full page load with 10 parallel fetches can take 15–30s wall time.

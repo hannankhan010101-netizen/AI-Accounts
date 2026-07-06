@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_INJECTION_PATTERNS = (
+# NOTE: must be a tuple, not a generator expression — a generator is consumed
+# on the first sanitize call and would leave every later message unscanned.
+_INJECTION_PATTERNS = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
         r"ignore\s+(all\s+)?(previous|prior)\s+instructions",

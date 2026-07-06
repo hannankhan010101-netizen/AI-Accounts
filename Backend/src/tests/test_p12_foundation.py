@@ -17,7 +17,23 @@ from app.constants.report_module_registry import (
     module_report_coverage,
 )
 from app.services.custom_field_service import ALLOWED_FIELD_TYPES
+from app.services.effective_permission_service import EffectivePermissionService
 from app.services.permission_service import PermissionService
+
+
+class _FakeEffective:
+    matches = staticmethod(EffectivePermissionService.matches)
+    filter_by_module = staticmethod(EffectivePermissionService.filter_by_module)
+
+    async def permissions_for_user(self, *, company_id: str, user_id: str) -> list[str]:
+        _ = company_id, user_id
+        return []
+
+
+class _FakeAccessControl:
+    async def disabled_modules(self, *, company_id: str) -> set[str]:
+        _ = company_id
+        return set()
 
 
 def test_module_report_coverage_p12_ids() -> None:
@@ -47,7 +63,10 @@ def test_matrix_covers_all_modules() -> None:
 
 @pytest.mark.asyncio
 async def test_permission_assert_any_allowed_star() -> None:
-    svc = PermissionService(membership_repository=None)  # type: ignore[arg-type]
+    svc = PermissionService(
+        effective_permissions=_FakeEffective(),  # type: ignore[arg-type]
+        access_control=_FakeAccessControl(),  # type: ignore[arg-type]
+    )
 
     async def fake_perms(**_kwargs):
         return ["*"]

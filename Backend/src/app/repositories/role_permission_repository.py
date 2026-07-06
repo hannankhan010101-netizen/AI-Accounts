@@ -22,7 +22,7 @@ class RolePermissionRepository:
             return
         await self._db.rolepermission.create_many(
             data=[{"roleId": role_id, "permissionCode": c, "granted": True} for c in unique],
-            skipDuplicates=True,
+            skip_duplicates=True,
         )
 
     async def sync_dual_write(self, *, role_id: str, codes: list[str]) -> None:
