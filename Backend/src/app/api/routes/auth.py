@@ -25,12 +25,17 @@ from app.services.auth_service import AuthService
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
-@router.post("/sign-up", response_model=SignUpPendingResponse, status_code=201)
+@router.post("/sign-up", response_model=Union[SignUpPendingResponse, AuthTokensResponse], status_code=201)
 async def sign_up(
     body: SignUpRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-) -> SignUpPendingResponse:
-    """Register user and first company; verify email with OTP before login."""
+) -> SignUpPendingResponse | AuthTokensResponse:
+    """Register user and first company.
+
+    Returns a pending response (verify email with OTP before login) unless
+    ``AUTH_SKIP_EMAIL_VERIFICATION`` is enabled, in which case tokens are
+    returned immediately.
+    """
 
     return await auth_service.sign_up(request=body)
 

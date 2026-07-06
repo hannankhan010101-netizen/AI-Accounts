@@ -58,12 +58,18 @@ class AuthService:
         self._otp = otp_repository
         self._email = email_service
 
-    async def sign_up(self, *, request: SignUpRequest) -> SignUpPendingResponse:
+    async def sign_up(
+        self, *, request: SignUpRequest
+    ) -> SignUpPendingResponse | AuthTokensResponse:
         """
         Create user, company, and defaults; email signup OTP when SMTP is configured.
 
-        Does **not** return API tokens until ``verify_email`` succeeds.
+        Does **not** return API tokens until ``verify_email`` succeeds — unless
+        ``AUTH_SKIP_EMAIL_VERIFICATION`` is enabled, in which case the account is
+        activated immediately and token pair is returned (no OTP step).
         """
+
+        skip_verify = get_settings().auth_skip_email_verification
 
         existing = await self._users.find_by_email(email=request.email)
         if existing:
@@ -72,9 +78,13 @@ class AuthService:
             # dead-ending the user with "email already registered" and no recovery.
             if existing.emailVerified:
                 raise ConflictError("Email already registered")
-            await self._ensure_company_for_user(
+            company_id = await self._ensure_company_for_user(
                 user_id=existing.id, company_name=request.company_name
             )
+            if skip_verify:
+                return await self._activate_without_otp(
+                    user_id=existing.id, company_id=company_id
+                )
             expires_at, plain = await self._store_otp(
                 user_id=existing.id,
                 email=request.email,
@@ -103,9 +113,14 @@ class AuthService:
         # with no (or a half-seeded) company. That is recoverable: a repeat signup
         # resumes via the branch above, and verify/login self-heal via
         # _ensure_founding_role. So we surface the error without a risky delete.
-        await self._ensure_company_for_user(
+        company_id = await self._ensure_company_for_user(
             user_id=user.id, company_name=request.company_name
         )
+        if skip_verify:
+            logger.info("Registered user %s with email verification skipped", user.id)
+            return await self._activate_without_otp(
+                user_id=user.id, company_id=company_id
+            )
         expires_at, plain = await self._store_otp(
             user_id=user.id,
             email=request.email,
@@ -127,6 +142,22 @@ class AuthService:
             plain_otp=plain,
             email_sent=email_sent,
         )
+
+    async def _activate_without_otp(
+        self, *, user_id: str, company_id: str
+    ) -> AuthTokensResponse:
+        """Mark the account verified and issue tokens without an OTP challenge.
+
+        Used when ``AUTH_SKIP_EMAIL_VERIFICATION`` is on. Also clears any pending
+        signup OTP so a stale challenge cannot linger for the now-active account.
+        """
+
+        await self._otp.delete_for_user_purpose(
+            user_id=user_id, purpose=otp_purpose.SIGNUP
+        )
+        await self._users.update_email_verified(user_id=user_id, verified=True)
+        await self._ensure_founding_role(company_id=company_id, user_id=user_id)
+        return self._issue_tokens(user_id=user_id, company_id=company_id)
 
     async def _ensure_company_for_user(
         self, *, user_id: str, company_name: str

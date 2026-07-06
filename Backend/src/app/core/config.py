@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     otp_ttl_minutes: int = 15
     # When true, sign-up / forgot-password responses include plaintext devOtp (local dev only).
     auth_expose_otp_in_response: bool = False
+    # When true, new registrations skip email OTP verification: the account is
+    # activated immediately at sign-up and tokens are returned. Set to false to
+    # re-enable the OTP step. (Temporarily disabled per product request.)
+    auth_skip_email_verification: bool = True
     # Learning assistant LLM (P52) — OpenAI-compatible chat completions API
     onboarding_llm_enabled: bool = False
     onboarding_llm_api_key: str = ""

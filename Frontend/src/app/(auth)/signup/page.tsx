@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
 import { authApi } from "@/lib/api/auth";
+import { setTokens } from "@/lib/auth/storage";
 import { ApiError } from "@/lib/api/client";
 
 const schema = z.object({
@@ -34,13 +35,21 @@ export default function SignUpPage() {
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
     try {
-      const pending = await authApi.signUp(values);
-      if (pending.devOtp) {
-        sessionStorage.setItem("devOtp", pending.devOtp);
+      const result = await authApi.signUp(values);
+      // When email verification is skipped server-side, sign-up returns tokens
+      // directly — sign the user in and go straight to the dashboard.
+      if ("accessToken" in result) {
+        setTokens(result);
+        sessionStorage.removeItem("devOtp");
+        router.push("/dashboard");
+        return;
+      }
+      if (result.devOtp) {
+        sessionStorage.setItem("devOtp", result.devOtp);
       } else {
         sessionStorage.removeItem("devOtp");
       }
-      router.push(`/verify-email?email=${encodeURIComponent(pending.email)}`);
+      router.push(`/verify-email?email=${encodeURIComponent(result.email)}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Sign up failed");
     }

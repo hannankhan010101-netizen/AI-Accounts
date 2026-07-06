@@ -55,7 +55,7 @@ export const authApi = {
     lastName: string;
     companyName: string;
   }) =>
-    apiFetch<SignUpPending>("/api/v1/auth/sign-up", {
+    apiFetch<SignUpPending | AuthTokens>("/api/v1/auth/sign-up", {
       method: "POST",
       body,
       anonymous: true,
