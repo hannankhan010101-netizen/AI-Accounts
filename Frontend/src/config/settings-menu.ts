@@ -1,6 +1,6 @@
 /**
  * Settings mega-menu structure — catalog §12.1.
- * Routes are placeholders; each Phase 1 milestone replaces them with real pages.
+ * Every route here resolves to a real page under app/(app)/settings.
  */
 
 export interface SettingsLink {

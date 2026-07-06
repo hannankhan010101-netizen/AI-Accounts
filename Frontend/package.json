@@ -2,6 +2,9 @@
   "name": "fast-accounts-frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "dev": "node --disable-warning=DEP0060 ./node_modules/next/dist/bin/next dev",
     "dev:clean": "node -e \"require('fs').rmSync('.next/cache',{recursive:true,force:true})\" && next dev",

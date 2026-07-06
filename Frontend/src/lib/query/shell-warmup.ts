@@ -37,20 +37,22 @@ export async function warmupShellCache(
 ): Promise<void> {
   setCurrentCompanyId(companyId);
 
+  // Wave 1 gates the shell: the sidebar/menu and permission checks need these
+  // before the app frame can render, so they get their own round-trip first.
   await runWarmupBatch(queryClient, companyId, [
     { key: ["content-menu"], queryFn: () => appSettingsApi.getMenuLayout() },
     { key: ["my-permissions"], queryFn: () => rbacApi.getMyPermissions() },
   ]);
 
+  // Wave 2: everything the landing dashboard needs, all in parallel. These have
+  // no dependency on each other, so there is no reason to stage them — the
+  // heavy command-center aggregation starts on the same round-trip as the rest.
   await runWarmupBatch(queryClient, companyId, [
     { key: ["coa-tree"], queryFn: () => ledgerApi.getCoaTree() },
     {
       key: ["report-definitions", "catalog"],
       queryFn: () => reportsApi.listDefinitions(),
     },
-  ]);
-
-  await runWarmupBatch(queryClient, companyId, [
     {
       key: ["dashboard-settings"],
       queryFn: () => appSettingsApi.getDashboardSettings(),

@@ -1,0 +1,22 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f4f7f0" />
+      <stop offset="0.55" stop-color="#e4ebe0" />
+      <stop offset="1" stop-color="#d8e2d0" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+  <g transform="translate(6 6) scale(1.625)">
+    <rect x="1" y="1" width="30" height="30" rx="8" fill="rgba(85,107,71,0.12)" />
+    <rect x="1" y="1" width="30" height="30" rx="8" stroke="rgba(85,107,71,0.22)" stroke-width="1" />
+    <rect x="7" y="6" width="13" height="18" rx="2" fill="rgba(85,107,71,0.12)" stroke="#556b47" stroke-width="1.75" />
+    <path d="M10 10.5h7M10 13.5h5" stroke="#556b47" stroke-width="1.4" stroke-linecap="round" opacity="0.55" />
+    <rect x="10" y="17.5" width="2.4" height="4" rx="0.6" fill="#556b47" />
+    <rect x="13.2" y="15.5" width="2.4" height="6" rx="0.6" fill="#6d8560" />
+    <rect x="16.4" y="13.5" width="2.4" height="8" rx="0.6" fill="#465a3b" />
+    <path d="M21.5 8.2l.75 1.5 1.5.75-1.5.75-.75 1.5-.75-1.5-1.5-.75 1.5-.75z" fill="#556b47" />
+    <circle cx="23.8" cy="12.2" r="1.35" fill="#6d8560" />
+    <path d="M22.2 11c1.2-.45 2.1.35 2.55 1.55" stroke="#556b47" stroke-width="1.35" stroke-linecap="round" />
+  </g>
+</svg>

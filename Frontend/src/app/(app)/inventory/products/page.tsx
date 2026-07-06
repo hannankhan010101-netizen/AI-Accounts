@@ -35,7 +35,14 @@ export default function ProductsPage() {
     ["products", page, trimmedSearch],
     () =>
       trimmedSearch
-        ? inventoryApi.searchProducts(trimmedSearch, 100)
+        ? inventoryApi
+            .searchProducts(trimmedSearch, 100)
+            .then(
+              (r): { result: Product[]; total?: number } => ({
+                result: r.result,
+                total: r.result.length,
+              }),
+            )
         : inventoryApi.listProducts({ page, pageSize: PAGE_SIZE }),
   );
 
@@ -46,7 +53,7 @@ export default function ProductsPage() {
   const pagination = {
     page: trimmedSearch ? 1 : page,
     pageCount,
-    total,
+    totalItems: total,
     pageSize: trimmedSearch ? total || PAGE_SIZE : PAGE_SIZE,
     onPageChange: (next: number) => {
       const params = patchListSearchParams(searchParams, { page: next });
@@ -60,7 +67,7 @@ export default function ProductsPage() {
         {
           key: "primaryImageAttachmentId",
           header: "",
-          width: 48,
+          className: "w-12",
           render: (r) =>
             r.primaryImageAttachmentId ? (
               // eslint-disable-next-line @next/next/no-img-element

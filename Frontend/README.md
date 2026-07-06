@@ -21,7 +21,7 @@ Open http://localhost:3000.
 - `/login`, `/signup`, `/verify-email`, `/forgot-password`, `/reset-password`
 
 **Shell**
-- `/dashboard` — placeholder grid (widget data lands with Phase 7.5 / §10.9)
+- `/dashboard` — command-center dashboard with configurable widget grid (§10.9)
 - `/(app)/[...slug]` — "coming soon" catch-all so unimplemented routes never 404
 
 **Settings** (catalog §9, §12)
@@ -35,8 +35,8 @@ Open http://localhost:3000.
 - `/settings/journals/new` — §9.2 voucher form (balanced debit/credit grid)
 
 **RBAC + audit** (catalog §12.3 / §12.4 / §12.15)
-- `/settings/users` — list (backend stub returns empty until Phase 1.3 wires CompanyMembership)
-- `/settings/roles` — list (rights tree lands with Phase 1.3)
+- `/settings/users` — company users with role assignment (CompanyMembership)
+- `/settings/roles` — roles with rights tree and role templates
 - `/settings/user-log` — filtered audit-log viewer
 
 **Master-data lists + create forms** (read + write paths)
@@ -126,11 +126,7 @@ src/
 - The Settings mega-menu (`src/config/settings-menu.ts`) mirrors §12.1.
 - Every catalog-named screen must land at the route declared in those two files; do not invent new top-level routes without updating the catalog cross-reference.
 
-## Next milestones (Phase 1 wrap-up)
+## Related services
 
-- Users & Roles (§12.3–§12.4) — backend RBAC tables exist; add CRUD UI.
-- COA tree, nominal modal, section management (§9.1) — backend categories endpoint exists.
-- User Log viewer (§12.15).
-- Content Settings (§12.14), Filters/Column Management — pending backend.
-
-After Phase 1, Phase 2 introduces the GL spine (journals, trial balance) — every later module posts through that.
+- Backend API must run on `:8000` (see `Backend/README.md`).
+- **Settings → Migrations requires the data-ingestion service on `:4100`** — see `services/data-ingestion/README.md` and the root `ONBOARDING.md`.

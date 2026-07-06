@@ -98,7 +98,7 @@ export default function ProductDetailPage() {
           <Button
             key={t.id}
             size="sm"
-            variant={tab === t.id ? "default" : "ghost"}
+            variant={tab === t.id ? "primary" : "ghost"}
             onClick={() => router.push(`/inventory/products/${productId}?tab=${t.id}`)}
           >
             {t.label}
